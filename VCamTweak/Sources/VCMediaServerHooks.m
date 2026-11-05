@@ -195,7 +195,8 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
 
                 BOOL targetMatches = [state shouldInjectForCameraPosition:cameraPosition];
                 if (state.cameraTarget != 0 && cameraPosition == 0) {
-                    suppressOriginal = [state blackoutImageBuffer:sbuf];
+                    // suppress orig only if blackout itself fails (buffer unwritable)
+                    suppressOriginal = ![state blackoutImageBuffer:sbuf];
                     targetMatches = NO;
                 }
                 if (targetMatches) {
@@ -206,10 +207,12 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
                         VCBridge *bridge = [VCBridge sharedInstance];
                         [bridge setResolution:(unsigned int)width height:(unsigned int)height];
                     }
-                    if ([state modifyImageBuffer:sbuf]) {
-                        suppressOriginal = YES;
-                    } else {
-                        suppressOriginal = [state blackoutImageBuffer:sbuf];
+                    // modifyImageBuffer: writes pixels in-place into sbuf's CVPixelBuffer.
+                    // On success (non-nil): suppressOriginal stays NO — orig IS called with
+                    // the modified pixels so the downstream graph receives our content.
+                    // On failure (nil): try blackout; suppress orig only if blackout also fails.
+                    if (![state modifyImageBuffer:sbuf]) {
+                        suppressOriginal = ![state blackoutImageBuffer:sbuf];
                     }
                 }
             }

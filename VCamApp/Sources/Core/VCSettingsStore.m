@@ -11,6 +11,7 @@ static NSString *const kMediaName  = @"vc.mediaName";
 static NSString *const kMediaPath  = @"vc.mediaPath";
 static NSString *const kLive       = @"vc.live";
 static NSString *const kCameraTarget = @"vc.cameraTarget";
+static NSString *const kVideoResolution = @"vc.videoResolution";
 
 @implementation VCSettingsStore {
     NSUserDefaults *_defaults;
@@ -149,6 +150,12 @@ static NSString *const kCameraTarget = @"vc.cameraTarget";
     [_defaults setInteger:cameraTarget forKey:kCameraTarget];
     [_socket sendInt32:1029 value:(int32_t)cameraTarget];
     [self notify:@"cameraTarget"];
+}
+
+- (NSInteger)videoResolution { return [_defaults integerForKey:kVideoResolution]; }
+- (void)setVideoResolution:(NSInteger)videoResolution {
+    [_defaults setInteger:videoResolution forKey:kVideoResolution];
+    [self notify:@"videoResolution"];
 }
 
 - (BOOL)isLive { return [_defaults boolForKey:kLive]; }

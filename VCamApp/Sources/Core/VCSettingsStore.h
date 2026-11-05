@@ -25,13 +25,14 @@ extern NSNotificationName const VCSettingsDidChangeNotification;
 + (instancetype)shared;
 
 @property (nonatomic) VCSourceType sourceType;
-@property (nonatomic) NSInteger fps;              // 1, 10, 15, 30
+@property (nonatomic) NSInteger fps;              // 0=auto, 10, 15, 30
 @property (nonatomic) VCFrameMode frameMode;
 @property (nonatomic, copy) NSString *rtmpURL;
 @property (nonatomic, copy, nullable) NSString *mediaName;
 @property (nonatomic, copy, nullable) NSString *mediaPath;
 @property (nonatomic, getter=isLive) BOOL live;
-@property (nonatomic) NSInteger cameraTarget; // 0=both, 1=rear, 2=front
+@property (nonatomic) NSInteger cameraTarget;    // 0=both, 1=rear, 2=front
+@property (nonatomic) NSInteger videoResolution; // 0=auto, 720, 1080
 
 + (NSArray<NSNumber *> *)supportedFPS;
 + (NSString *)defaultRTMPURL;

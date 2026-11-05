@@ -357,36 +357,63 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
 #pragma mark - PHPickerViewControllerDelegate
 
 - (void)promptVideoFPS:(NSString *)filename path:(NSString *)path store:(VCSettingsStore *)s {
-    NSString *msg = [NSString stringWithFormat:@"File: %@", filename];
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"Cấu hình video"
-                         message:msg
+    // Step 1: ask resolution
+    UIAlertController *resAlert = [UIAlertController
+        alertControllerWithTitle:@"Độ phân giải"
+                         message:[NSString stringWithFormat:@"File: %@", filename]
                   preferredStyle:UIAlertControllerStyleActionSheet];
-    void (^apply)(NSInteger) = ^(NSInteger fps) {
-        s.fps = fps;
-        s.mediaName = filename;
-        s.mediaPath = path;
+
+    void (^askFPS)(NSInteger) = ^(NSInteger res) {
+        s.videoResolution = res;
+        // Step 2: ask FPS
+        UIAlertController *fpsAlert = [UIAlertController
+            alertControllerWithTitle:@"Tốc độ khung hình"
+                             message:nil
+                      preferredStyle:UIAlertControllerStyleActionSheet];
+        void (^apply)(NSInteger) = ^(NSInteger fps) {
+            s.fps = fps;
+            s.mediaName = filename;
+            s.mediaPath = path;
+        };
+        [fpsAlert addAction:[UIAlertAction actionWithTitle:@"Tự động (FPS gốc)"
+                                                     style:UIAlertActionStyleDefault
+                                                   handler:^(UIAlertAction *a) { apply(0); }]];
+        [fpsAlert addAction:[UIAlertAction actionWithTitle:@"15 FPS"
+                                                     style:UIAlertActionStyleDefault
+                                                   handler:^(UIAlertAction *a) { apply(15); }]];
+        [fpsAlert addAction:[UIAlertAction actionWithTitle:@"30 FPS"
+                                                     style:UIAlertActionStyleDefault
+                                                   handler:^(UIAlertAction *a) { apply(30); }]];
+        [fpsAlert addAction:[UIAlertAction actionWithTitle:@"Hủy"
+                                                     style:UIAlertActionStyleCancel
+                                                   handler:^(UIAlertAction *a) {
+            s.mediaName = filename;
+            s.mediaPath = path;
+        }]];
+        fpsAlert.popoverPresentationController.sourceView = self.view;
+        fpsAlert.popoverPresentationController.sourceRect =
+            CGRectMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2, 0, 0);
+        fpsAlert.popoverPresentationController.permittedArrowDirections = 0;
+        [self presentViewController:fpsAlert animated:YES completion:nil];
     };
-    [alert addAction:[UIAlertAction actionWithTitle:@"Tự động (FPS gốc)"
-                                             style:UIAlertActionStyleDefault
-                                           handler:^(UIAlertAction *a) { apply(0); }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"15 FPS"
-                                             style:UIAlertActionStyleDefault
-                                           handler:^(UIAlertAction *a) { apply(15); }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"30 FPS"
-                                             style:UIAlertActionStyleDefault
-                                           handler:^(UIAlertAction *a) { apply(30); }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"Hủy (giữ FPS hiện tại)"
-                                             style:UIAlertActionStyleCancel
-                                           handler:^(UIAlertAction *a) {
-        s.mediaName = filename;
-        s.mediaPath = path;
-    }]];
-    alert.popoverPresentationController.sourceView = self.view;
-    alert.popoverPresentationController.sourceRect =
+
+    [resAlert addAction:[UIAlertAction actionWithTitle:@"Tự động (gốc)"
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(UIAlertAction *a) { askFPS(0); }]];
+    [resAlert addAction:[UIAlertAction actionWithTitle:@"720p (HD)"
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(UIAlertAction *a) { askFPS(720); }]];
+    [resAlert addAction:[UIAlertAction actionWithTitle:@"1080p (Full HD)"
+                                                 style:UIAlertActionStyleDefault
+                                               handler:^(UIAlertAction *a) { askFPS(1080); }]];
+    [resAlert addAction:[UIAlertAction actionWithTitle:@"Hủy"
+                                                 style:UIAlertActionStyleCancel
+                                               handler:nil]];
+    resAlert.popoverPresentationController.sourceView = self.view;
+    resAlert.popoverPresentationController.sourceRect =
         CGRectMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2, 0, 0);
-    alert.popoverPresentationController.permittedArrowDirections = 0;
-    [self presentViewController:alert animated:YES completion:nil];
+    resAlert.popoverPresentationController.permittedArrowDirections = 0;
+    [self presentViewController:resAlert animated:YES completion:nil];
 }
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
