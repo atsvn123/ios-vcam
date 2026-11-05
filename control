@@ -1,0 +1,9 @@
+Package: com.vcam.vcam
+Name: VCam
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Virtual camera cho iOS 14 - 17 (app khung)
+Section: Tweaks
+Author: Nguyen Minh Cong
+Maintainer: Nguyen Minh Cong
+Depends: firmware (>= 14.0)

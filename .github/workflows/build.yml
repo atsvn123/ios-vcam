@@ -1,0 +1,101 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build .deb (rootless / RootHide, arm64 + arm64e)
+    runs-on: macos-14
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install build tools
+        run: brew install ldid dpkg
+
+      - name: Cache Theos
+        id: cache-theos
+        uses: actions/cache@v5
+        with:
+          path: /Users/runner/theos
+          key: theos-macos14-${{ hashFiles('.github/workflows/build.yml') }}
+
+      - name: Install Theos
+        if: steps.cache-theos.outputs.cache-hit != 'true'
+        env:
+          THEOS: /Users/runner/theos
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+
+      - name: Build package
+        env:
+          THEOS: /Users/runner/theos
+        run: |
+          chmod 755 layout/DEBIAN/postinst layout/DEBIAN/prerm
+          rm -f packages/*.deb
+          make clean
+          make package \
+            THEOS_PACKAGE_SCHEME=rootless \
+            TARGET="iphone:clang:latest:14.0" \
+            ARCHS="arm64 arm64e" \
+            FINALPACKAGE=1 \
+            DEBUG=0
+
+      - name: Rename .deb
+        run: |
+          VER=$(awk -F': ' '/^Version:/ {print $2; exit}' control)
+          DEB=$(ls -t packages/*.deb | head -1)
+          OUT="packages/com.vcam.vcam_${VER}_iphoneos-arm64.deb"
+          [ "$DEB" = "$OUT" ] || mv "$DEB" "$OUT"
+          echo "Built: $OUT"
+
+      - name: Verify package
+        run: |
+          DEB=$(ls packages/*.deb | tail -1)
+          dpkg-deb -I "$DEB"
+          dpkg-deb -c "$DEB"
+          dpkg-deb -x "$DEB" /tmp/chk
+          lipo -archs /tmp/chk/var/jb/Applications/VCam.app/VCam
+          test -f /tmp/chk/var/jb/Applications/VCam.app/Info.plist
+          test -f /tmp/chk/var/jb/Applications/VCam.app/AppIcon60x60@2x.png
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: VCam-${{ github.sha }}
+          path: packages/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish rolling latest release
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: latest
+          name: "Latest Build"
+          prerelease: true
+          make_latest: false
+          files: packages/*.deb
+          body: |
+            Rolling build, cập nhật mỗi lần push lên `main`.
+            arm64 + arm64e · rootless (Dopamine) & RootHide (/var/jb).
+            Cài bằng Sileo/Filza hoặc `dpkg -i`. App VCam xuất hiện trên màn hình chính.
+
+      - name: Publish versioned release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: packages/*.deb
+          generate_release_notes: true

@@ -1,0 +1,11 @@
+# Theos
+.theos/
+packages/
+theos/
+*.deb
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp

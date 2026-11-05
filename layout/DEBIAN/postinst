@@ -1,0 +1,14 @@
+#!/bin/sh
+# postinst — đăng ký VCam.app với SpringBoard (icon xuất hiện ngay, không cần respring)
+
+APP=/var/jb/Applications/VCam.app
+[ -d "$APP" ] || APP=/Applications/VCam.app
+
+for UICACHE in /var/jb/usr/bin/uicache /usr/bin/uicache; do
+    if [ -x "$UICACHE" ]; then
+        "$UICACHE" -p "$APP" 2>/dev/null || true
+        break
+    fi
+done
+
+exit 0

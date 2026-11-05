@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Script/Makefile chạy trên macOS/iOS phải giữ LF
+Makefile            text eol=lf
+control             text eol=lf
+layout/DEBIAN/*     text eol=lf
+*.sh                text eol=lf
+*.plist             text eol=lf
+*.png               binary
