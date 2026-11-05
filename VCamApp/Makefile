@@ -11,7 +11,7 @@ VCam_FILES = \
 	$(wildcard Sources/Views/*.m) \
 	$(wildcard Sources/Controllers/*.m)
 
-VCam_FRAMEWORKS = Foundation UIKit CoreGraphics QuartzCore
+VCam_FRAMEWORKS = Foundation UIKit CoreGraphics QuartzCore UniformTypeIdentifiers
 
 VCam_CFLAGS = \
 	-fobjc-arc \

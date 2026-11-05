@@ -2,7 +2,6 @@
 #import "VCTheme.h"
 #import "VCCardView.h"
 
-// Khoá NSUserDefaults tạm cho khung UI. Khi port BINFlash sẽ chuyển sang prefs của tweak.
 static NSString *const kFlashOn     = @"vc.liveness.flash";
 static NSString *const kSpeed       = @"vc.liveness.speed";
 static NSString *const kBrightness  = @"vc.liveness.brightness";
@@ -13,7 +12,7 @@ static NSString *const kAutoColor   = @"vc.liveness.autoColor";
     UIStackView *_stack;
     UISwitch *_flashSwitch;
     UISwitch *_autoColorSwitch;
-    NSMutableArray<UIView *> *_dependentRows;  // mờ đi khi flash tắt
+    NSMutableArray<UIView *> *_dependentRows;
 }
 
 - (void)viewDidLoad {
@@ -48,18 +47,21 @@ static NSString *const kAutoColor   = @"vc.liveness.autoColor";
         [_stack.trailingAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.trailingAnchor constant:-g],
     ]];
 
-    [_stack addArrangedSubview:[self buildFlashCard]];
-    [_stack addArrangedSubview:[self buildColorCard]];
-    [_stack addArrangedSubview:[self buildRegionCard]];
+    [_stack addArrangedSubview:[self buildLivenessCard]];
     [_stack addArrangedSubview:[self noteLabel]];
 
     [self updateEnabled];
 }
 
-#pragma mark - Cards
+#pragma mark - Card
 
-- (UIView *)buildFlashCard {
-    VCCardView *card = [[VCCardView alloc] initWithTitle:@"Flash" dotColor:[VCTheme accentPink]];
+- (UIView *)buildLivenessCard {
+    VCCardView *card = [[VCCardView alloc] initWithTitle:@"Liveness" dotColor:[VCTheme accentPink]];
+
+    // --- Flash section ---
+    UILabel *flashHeader = [self sectionHeader:@"FLASH"];
+    [card addArrangedSubview:flashHeader];
+
     _flashSwitch = [[UISwitch alloc] init];
     _flashSwitch.onTintColor = [VCTheme accentPink];
     _flashSwitch.on = [[NSUserDefaults standardUserDefaults] boolForKey:kFlashOn];
@@ -71,11 +73,14 @@ static NSString *const kAutoColor   = @"vc.liveness.autoColor";
     [_dependentRows addObjectsFromArray:@[ speed, bright ]];
     [card addArrangedSubview:speed];
     [card addArrangedSubview:bright];
-    return card;
-}
 
-- (UIView *)buildColorCard {
-    VCCardView *card = [[VCCardView alloc] initWithTitle:@"Màu" dotColor:[VCTheme accentRed]];
+    // --- Separator ---
+    [card addArrangedSubview:[self separator]];
+
+    // --- Color section ---
+    UILabel *colorHeader = [self sectionHeader:@"MÀU"];
+    [card addArrangedSubview:colorHeader];
+
     _autoColorSwitch = [[UISwitch alloc] init];
     _autoColorSwitch.onTintColor = [VCTheme accentPink];
     _autoColorSwitch.on = [[NSUserDefaults standardUserDefaults] boolForKey:kAutoColor];
@@ -94,11 +99,14 @@ static NSString *const kAutoColor   = @"vc.liveness.autoColor";
     [_dependentRows addObjectsFromArray:@[ autoRow, pick ]];
     [card addArrangedSubview:autoRow];
     [card addArrangedSubview:pick];
-    return card;
-}
 
-- (UIView *)buildRegionCard {
-    VCCardView *card = [[VCCardView alloc] initWithTitle:@"Vùng khuôn mặt" dotColor:[VCTheme accentOrange]];
+    // --- Separator ---
+    [card addArrangedSubview:[self separator]];
+
+    // --- Region section ---
+    UILabel *regionHeader = [self sectionHeader:@"VÙNG KHUÔN MẶT"];
+    [card addArrangedSubview:regionHeader];
+
     UIView *region = [self sliderRow:@"Kích thước vùng" key:kRegion];
 
     UIButton *manual = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -113,6 +121,7 @@ static NSString *const kAutoColor   = @"vc.liveness.autoColor";
     [_dependentRows addObjectsFromArray:@[ region, manual ]];
     [card addArrangedSubview:region];
     [card addArrangedSubview:manual];
+
     return card;
 }
 
@@ -127,6 +136,21 @@ static NSString *const kAutoColor   = @"vc.liveness.autoColor";
 }
 
 #pragma mark - Row helpers
+
+- (UILabel *)sectionHeader:(NSString *)text {
+    UILabel *l = [[UILabel alloc] init];
+    l.text = text;
+    l.font = [UIFont systemFontOfSize:11 weight:UIFontWeightBold];
+    l.textColor = [VCTheme textSecondary];
+    return l;
+}
+
+- (UIView *)separator {
+    UIView *line = [[UIView alloc] init];
+    line.backgroundColor = [VCTheme cardBorder];
+    [line.heightAnchor constraintEqualToConstant:1].active = YES;
+    return line;
+}
 
 - (UIView *)row:(NSString *)title control:(UIView *)control {
     UILabel *l = [[UILabel alloc] init];

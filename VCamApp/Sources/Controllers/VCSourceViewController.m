@@ -3,38 +3,42 @@
 #import "VCTheme.h"
 #import "VCCardView.h"
 #import "VCLiveButton.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-@interface VCSourceViewController () <UITextFieldDelegate>
+@interface VCSourceViewController () <UITextFieldDelegate, UIDocumentPickerDelegate>
 @end
 
 @implementation VCSourceViewController {
     UIScrollView *_scroll;
     UIStackView *_stack;
 
-    // Preview
-    UILabel *_previewTitle;
-    UILabel *_previewInfo;
-    UIImageView *_previewIcon;
-
-    // Nguồn
+    VCCardView *_sourceCard;
     UISegmentedControl *_sourceSeg;
-    UIView *_rtmpPanel;
+
+    UIStackView *_rtmpPanel;
     UITextField *_rtmpField;
-    UIView *_mediaPanel;
+
+    UIStackView *_mediaPanel;
     UIButton *_pickMediaButton;
     UILabel *_mediaNameLabel;
 
-    // FPS / khung hình
+    VCCardView *_fpsCard;
     UISegmentedControl *_fpsSeg;
+    UILabel *_fpsHint;
+
+    VCCardView *_frameCard;
     UISegmentedControl *_frameSeg;
     UILabel *_frameHint;
 
     VCLiveButton *_liveButton;
+
+    VCSourceType _lastSourceType;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [VCTheme background];
+    _lastSourceType = (VCSourceType)-1;
     [self buildLayout];
     [self reloadFromStore];
 
@@ -82,70 +86,33 @@
         [_stack.trailingAnchor constraintEqualToAnchor:frame.trailingAnchor constant:-g],
     ]];
 
-    [_stack addArrangedSubview:[self buildPreviewCard]];
-    [_stack addArrangedSubview:[self buildSourceCard]];
-    [_stack addArrangedSubview:[self buildFPSCard]];
-    [_stack addArrangedSubview:[self buildFrameCard]];
+    [self buildSourceCard];
+    [self buildRTMPPanel];
+    [self buildMediaPanel];
+    [self buildFPSCard];
+    [self buildFrameCard];
+
+    [_stack addArrangedSubview:_sourceCard];
+    [_stack addArrangedSubview:_fpsCard];
+    [_stack addArrangedSubview:_frameCard];
 
     _liveButton = [[VCLiveButton alloc] init];
     [_liveButton addTarget:self action:@selector(liveTapped) forControlEvents:UIControlEventTouchUpInside];
     [_stack addArrangedSubview:_liveButton];
-    [_stack setCustomSpacing:20 afterView:_stack.arrangedSubviews[_stack.arrangedSubviews.count - 2]];
+    [_stack setCustomSpacing:20 afterView:_frameCard];
 }
 
-- (UIView *)buildPreviewCard {
-    UIView *box = [[UIView alloc] init];
-    box.backgroundColor = [UIColor blackColor];
-    box.layer.cornerRadius = [VCTheme cornerRadius];
-    box.layer.borderWidth = 1;
-    box.layer.borderColor = [VCTheme cardBorder].CGColor;
-    box.clipsToBounds = YES;
-
-    _previewIcon = [[UIImageView alloc] init];
-    _previewIcon.tintColor = [UIColor colorWithWhite:1 alpha:0.25];
-    _previewIcon.contentMode = UIViewContentModeScaleAspectFit;
-    _previewIcon.translatesAutoresizingMaskIntoConstraints = NO;
-
-    _previewTitle = [[UILabel alloc] init];
-    _previewTitle.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-    _previewTitle.textColor = [VCTheme textPrimary];
-    _previewTitle.translatesAutoresizingMaskIntoConstraints = NO;
-
-    _previewInfo = [[UILabel alloc] init];
-    _previewInfo.font = [VCTheme captionFont];
-    _previewInfo.textColor = [VCTheme textSecondary];
-    _previewInfo.numberOfLines = 2;
-    _previewInfo.translatesAutoresizingMaskIntoConstraints = NO;
-
-    [box addSubview:_previewIcon];
-    [box addSubview:_previewTitle];
-    [box addSubview:_previewInfo];
-    [NSLayoutConstraint activateConstraints:@[
-        [box.heightAnchor constraintEqualToAnchor:box.widthAnchor multiplier:9.0 / 16.0],
-        [_previewIcon.centerXAnchor constraintEqualToAnchor:box.centerXAnchor],
-        [_previewIcon.centerYAnchor constraintEqualToAnchor:box.centerYAnchor],
-        [_previewIcon.widthAnchor constraintEqualToConstant:44],
-        [_previewIcon.heightAnchor constraintEqualToConstant:44],
-        [_previewTitle.topAnchor constraintEqualToAnchor:box.topAnchor constant:12],
-        [_previewTitle.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:14],
-        [_previewTitle.trailingAnchor constraintLessThanOrEqualToAnchor:box.trailingAnchor constant:-14],
-        [_previewInfo.leadingAnchor constraintEqualToAnchor:box.leadingAnchor constant:14],
-        [_previewInfo.trailingAnchor constraintEqualToAnchor:box.trailingAnchor constant:-14],
-        [_previewInfo.bottomAnchor constraintEqualToAnchor:box.bottomAnchor constant:-12],
-    ]];
-    return box;
-}
-
-- (UIView *)buildSourceCard {
-    VCCardView *card = [[VCCardView alloc] initWithTitle:@"Nguồn" dotColor:[VCTheme accentPink]];
+- (void)buildSourceCard {
+    _sourceCard = [[VCCardView alloc] initWithTitle:@"Nguồn" dotColor:[VCTheme accentPink]];
 
     _sourceSeg = [[UISegmentedControl alloc] initWithItems:@[ @"RTMP", @"Ảnh", @"Video" ]];
     [VCTheme styleSegmentedControl:_sourceSeg];
     [_sourceSeg.heightAnchor constraintEqualToConstant:36].active = YES;
     [_sourceSeg addTarget:self action:@selector(sourceChanged:) forControlEvents:UIControlEventValueChanged];
-    [card addArrangedSubview:_sourceSeg];
+    [_sourceCard addArrangedSubview:_sourceSeg];
+}
 
-    // RTMP panel
+- (void)buildRTMPPanel {
     _rtmpField = [[UITextField alloc] init];
     _rtmpField.backgroundColor = [VCTheme field];
     _rtmpField.layer.cornerRadius = 10;
@@ -170,48 +137,69 @@
     rtmpActions.spacing = 10;
     rtmpActions.distribution = UIStackViewDistributionFillEqually;
 
-    UIStackView *rtmp = [[UIStackView alloc] initWithArrangedSubviews:@[
+    _rtmpPanel = [[UIStackView alloc] initWithArrangedSubviews:@[
         [self caption:@"RTMP URL"], _rtmpField, rtmpActions ]];
-    rtmp.axis = UILayoutConstraintAxisVertical;
-    rtmp.spacing = 8;
-    _rtmpPanel = rtmp;
-    [card addArrangedSubview:_rtmpPanel];
+    _rtmpPanel.axis = UILayoutConstraintAxisVertical;
+    _rtmpPanel.spacing = 8;
+}
 
-    // Media panel (Ảnh / Video)
+- (void)buildMediaPanel {
     _pickMediaButton = [self smallButton:@"Chọn ảnh..." icon:@"photo.on.rectangle" action:@selector(pickMedia)];
     [_pickMediaButton.heightAnchor constraintEqualToConstant:44].active = YES;
     _mediaNameLabel = [self caption:@""];
     _mediaNameLabel.numberOfLines = 2;
-    UIStackView *media = [[UIStackView alloc] initWithArrangedSubviews:@[ _pickMediaButton, _mediaNameLabel ]];
-    media.axis = UILayoutConstraintAxisVertical;
-    media.spacing = 8;
-    _mediaPanel = media;
-    [card addArrangedSubview:_mediaPanel];
-
-    return card;
+    _mediaPanel = [[UIStackView alloc] initWithArrangedSubviews:@[ _pickMediaButton, _mediaNameLabel ]];
+    _mediaPanel.axis = UILayoutConstraintAxisVertical;
+    _mediaPanel.spacing = 8;
 }
 
-- (UIView *)buildFPSCard {
-    VCCardView *card = [[VCCardView alloc] initWithTitle:@"Hiệu năng / FPS" dotColor:[VCTheme accentRed]];
+- (void)buildFPSCard {
+    _fpsCard = [[VCCardView alloc] initWithTitle:@"Hiệu năng / FPS" dotColor:[VCTheme accentRed]];
     _fpsSeg = [[UISegmentedControl alloc] initWithItems:@[ @"Tĩnh 1", @"10", @"15", @"30" ]];
     [VCTheme styleSegmentedControl:_fpsSeg];
     [_fpsSeg.heightAnchor constraintEqualToConstant:36].active = YES;
     [_fpsSeg addTarget:self action:@selector(fpsChanged:) forControlEvents:UIControlEventValueChanged];
-    [card addArrangedSubview:_fpsSeg];
-    [card addArrangedSubview:[self caption:@"FPS thấp giảm tải CPU và nhiệt. Nguồn Ảnh luôn chạy 1 FPS."]];
-    return card;
+    [_fpsCard addArrangedSubview:_fpsSeg];
+    _fpsHint = [self caption:@""];
+    [_fpsCard addArrangedSubview:_fpsHint];
 }
 
-- (UIView *)buildFrameCard {
-    VCCardView *card = [[VCCardView alloc] initWithTitle:@"Khung hình" dotColor:[VCTheme accentOrange]];
+- (void)buildFrameCard {
+    _frameCard = [[VCCardView alloc] initWithTitle:@"Khung hình" dotColor:[VCTheme accentOrange]];
     _frameSeg = [[UISegmentedControl alloc] initWithItems:@[ @"Fit", @"Trim" ]];
     [VCTheme styleSegmentedControl:_frameSeg];
     [_frameSeg.heightAnchor constraintEqualToConstant:36].active = YES;
     [_frameSeg addTarget:self action:@selector(frameChanged:) forControlEvents:UIControlEventValueChanged];
-    [card addArrangedSubview:_frameSeg];
+    [_frameCard addArrangedSubview:_frameSeg];
     _frameHint = [self caption:@""];
-    [card addArrangedSubview:_frameHint];
-    return card;
+    [_frameCard addArrangedSubview:_frameHint];
+}
+
+#pragma mark - Panel switching
+
+- (void)showPanelForSource:(VCSourceType)type animated:(BOOL)animated {
+    if (_lastSourceType == type) return;
+
+    if (_lastSourceType == VCSourceTypeRTMP) {
+        [_rtmpPanel removeFromSuperview];
+    } else if (_lastSourceType != (VCSourceType)-1) {
+        [_mediaPanel removeFromSuperview];
+    }
+
+    UIView *panel = (type == VCSourceTypeRTMP) ? _rtmpPanel : _mediaPanel;
+
+    if (animated) {
+        panel.alpha = 0;
+        [_sourceCard addArrangedSubview:panel];
+        [UIView animateWithDuration:0.25 animations:^{
+            panel.alpha = 1;
+            [self.view layoutIfNeeded];
+        }];
+    } else {
+        [_sourceCard addArrangedSubview:panel];
+    }
+
+    _lastSourceType = type;
 }
 
 #pragma mark - Helpers
@@ -254,8 +242,8 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
     VCSourceType type = s.sourceType;
 
     _sourceSeg.selectedSegmentIndex = type;
-    _rtmpPanel.hidden = (type != VCSourceTypeRTMP);
-    _mediaPanel.hidden = (type == VCSourceTypeRTMP);
+    [self showPanelForSource:type animated:YES];
+
     if (!_rtmpField.isFirstResponder) _rtmpField.text = s.rtmpURL;
 
     BOOL isVideo = (type == VCSourceTypeVideo);
@@ -265,11 +253,18 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
     _mediaNameLabel.text = s.mediaName.length ? s.mediaName
                                               : (isVideo ? @"Chưa chọn video" : @"Chưa chọn ảnh");
 
-    // Ảnh tĩnh luôn 1 FPS: khoá segment FPS.
-    BOOL photo = (type == VCSourceTypePhoto);
-    _fpsSeg.selectedSegmentIndex = photo ? 0 : VCIndexForFPS(s.fps);
-    _fpsSeg.enabled = !photo;
-    _fpsSeg.alpha = photo ? 0.45 : 1.0;
+    BOOL showFPS = (type == VCSourceTypeRTMP);
+    _fpsSeg.selectedSegmentIndex = showFPS ? VCIndexForFPS(s.fps) : (type == VCSourceTypePhoto ? 0 : 3);
+    _fpsSeg.enabled = showFPS;
+    _fpsSeg.alpha = showFPS ? 1.0 : 0.45;
+
+    if (type == VCSourceTypePhoto) {
+        _fpsHint.text = @"Nguồn Ảnh: chỉ inject 1 frame tĩnh, không tốn CPU.";
+    } else if (isVideo) {
+        _fpsHint.text = @"Nguồn Video: sử dụng FPS gốc từ file, không cần throttle.";
+    } else {
+        _fpsHint.text = @"FPS thấp giảm tải CPU và nhiệt.";
+    }
 
     _frameSeg.selectedSegmentIndex = s.frameMode;
     _frameHint.text = (s.frameMode == VCFrameModeFit)
@@ -277,33 +272,16 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
         : @"Trim: cắt cho đầy khung camera, không có viền.";
 
     [_liveButton setLive:s.isLive animated:NO];
-    // Đang live thì khoá đổi nguồn để tránh đổi giữa chừng.
     _sourceSeg.enabled = !s.isLive;
     _sourceSeg.alpha = s.isLive ? 0.45 : 1.0;
-
-    [self updatePreview];
-}
-
-- (void)updatePreview {
-    VCSettingsStore *s = [VCSettingsStore shared];
-    NSArray *names = @[ @"RTMP", @"Ảnh", @"Video" ];
-    NSArray *icons = @[ @"dot.radiowaves.left.and.right", @"photo", @"film" ];
-    _previewTitle.text = [NSString stringWithFormat:@"Preview %@", names[s.sourceType]];
-    _previewIcon.image = [UIImage systemImageNamed:icons[s.sourceType]];
-    NSString *fps = (s.sourceType == VCSourceTypePhoto) ? @"1" : [@(s.fps) stringValue];
-    _previewInfo.text = [NSString stringWithFormat:@"%@ · %@ FPS · %@\nChưa có tín hiệu",
-                         s.isLive ? @"● LIVE" : @"○ Tắt", fps,
-                         s.frameMode == VCFrameModeFit ? @"Fit" : @"Trim"];
 }
 
 #pragma mark - Actions
 
 - (void)sourceChanged:(UISegmentedControl *)seg {
     [self.view endEditing:YES];
-    [UIView animateWithDuration:0.25 animations:^{
-        [VCSettingsStore shared].sourceType = (VCSourceType)seg.selectedSegmentIndex;
-        [self.view layoutIfNeeded];
-    }];
+    VCSourceType newType = (VCSourceType)seg.selectedSegmentIndex;
+    [VCSettingsStore shared].sourceType = newType;
 }
 
 - (void)fpsChanged:(UISegmentedControl *)seg {
@@ -325,12 +303,19 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
 }
 
 - (void)pickMedia {
-    // TODO(port): PHPickerViewController / UIDocumentPicker + copy file sang thư mục tweak đọc được.
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"Chưa khả dụng"
-                                                               message:@"Chọn media sẽ được port từ bản cũ ở bước sau."
-                                                        preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:a animated:YES completion:nil];
+    VCSourceType type = [VCSettingsStore shared].sourceType;
+    NSArray<UTType *> *types;
+    if (type == VCSourceTypeVideo) {
+        types = @[UTTypeMovie, UTTypeMPEG4Movie, UTTypeQuickTimeMovie];
+    } else {
+        types = @[UTTypeImage, UTTypePNG, UTTypeJPEG];
+    }
+
+    UIDocumentPickerViewController *picker =
+        [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types];
+    picker.delegate = self;
+    picker.allowsMultipleSelection = NO;
+    [self presentViewController:picker animated:YES completion:nil];
 }
 
 - (void)liveTapped {
@@ -340,7 +325,6 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
         [self toast:(s.sourceType == VCSourceTypeVideo ? @"Hãy chọn video trước" : @"Hãy chọn ảnh trước")];
         return;
     }
-    // TODO(port): gửi lệnh start/stop sang tweak qua bridge. Hiện chỉ đổi state UI.
     UIImpactFeedbackGenerator *haptic = [[UIImpactFeedbackGenerator alloc]
         initWithStyle:UIImpactFeedbackStyleMedium];
     [haptic impactOccurred];
@@ -370,6 +354,38 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
         [UIView animateWithDuration:0.3 delay:1.4 options:0 animations:^{ l.alpha = 0; }
                          completion:^(BOOL f2) { [l removeFromSuperview]; }];
     }];
+}
+
+#pragma mark - UIDocumentPickerDelegate
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller
+    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    NSURL *srcURL = urls.firstObject;
+    if (!srcURL) return;
+
+    BOOL accessed = [srcURL startAccessingSecurityScopedResource];
+
+    NSString *filename = srcURL.lastPathComponent;
+    NSString *tmpDir = @"/var/mobile/tmp/vcam";
+    NSFileManager *fm = [NSFileManager defaultManager];
+    [fm createDirectoryAtPath:tmpDir withIntermediateDirectories:YES attributes:nil error:nil];
+
+    NSString *destPath = [tmpDir stringByAppendingPathComponent:filename];
+    [fm removeItemAtPath:destPath error:nil];
+
+    NSError *err = nil;
+    BOOL ok = [fm copyItemAtURL:srcURL toURL:[NSURL fileURLWithPath:destPath] error:&err];
+
+    if (accessed) [srcURL stopAccessingSecurityScopedResource];
+
+    if (!ok) {
+        [self toast:@"Không thể sao chép file"];
+        return;
+    }
+
+    VCSettingsStore *s = [VCSettingsStore shared];
+    s.mediaName = filename;
+    s.mediaPath = destPath;
 }
 
 #pragma mark - UITextFieldDelegate

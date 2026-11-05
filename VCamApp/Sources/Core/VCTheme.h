@@ -2,7 +2,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Màu, font, kích thước dùng chung. Bảng màu lấy từ logo (gradient hồng -> cam).
+/// Màu, font, kích thước dùng chung. Bảng màu tím (purple).
 @interface VCTheme : NSObject
 
 + (UIColor *)background;      // nền app (gần đen)
@@ -11,9 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (UIColor *)field;           // nền ô nhập / segment
 + (UIColor *)textPrimary;
 + (UIColor *)textSecondary;
-+ (UIColor *)accentPink;      // #F850B3
-+ (UIColor *)accentRed;       // #FF4059
-+ (UIColor *)accentOrange;    // #FFA924
++ (UIColor *)accentPink;      // #8B5CF6 — tím chủ đạo
++ (UIColor *)accentRed;       // #A855F7 — tím sáng (phụ)
++ (UIColor *)accentOrange;    // #6D28D9 — tím đậm (phụ)
 + (UIColor *)liveGreen;
 
 /// Các stop của gradient thương hiệu (CGColor).

@@ -15,15 +15,15 @@ static UIColor *VCHex(uint32_t rgb, CGFloat a) {
 + (UIColor *)field         { return VCHex(0x222228, 1.0); }
 + (UIColor *)textPrimary   { return [UIColor colorWithWhite:0.96 alpha:1.0]; }
 + (UIColor *)textSecondary { return [UIColor colorWithWhite:0.60 alpha:1.0]; }
-+ (UIColor *)accentPink    { return VCHex(0xF850B3, 1.0); }
-+ (UIColor *)accentRed     { return VCHex(0xFF4059, 1.0); }
-+ (UIColor *)accentOrange  { return VCHex(0xFFA924, 1.0); }
++ (UIColor *)accentPink    { return VCHex(0x8B5CF6, 1.0); }  // tím chủ đạo
++ (UIColor *)accentRed     { return VCHex(0xA855F7, 1.0); }  // tím sáng
++ (UIColor *)accentOrange  { return VCHex(0x6D28D9, 1.0); }  // tím đậm
 + (UIColor *)liveGreen     { return VCHex(0x34D399, 1.0); }
 
 + (NSArray *)brandGradientColors {
+    // Không dùng gradient nữa — trả về 1 màu solid tím
     return @[ (id)[self accentPink].CGColor,
-              (id)[self accentRed].CGColor,
-              (id)[self accentOrange].CGColor ];
+              (id)[self accentPink].CGColor ];
 }
 
 + (CGFloat)cornerRadius { return 16.0; }

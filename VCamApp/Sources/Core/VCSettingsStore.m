@@ -1,4 +1,5 @@
 #import "VCSettingsStore.h"
+#import "VCClientSocket.h"
 
 NSNotificationName const VCSettingsDidChangeNotification = @"VCSettingsDidChangeNotification";
 
@@ -7,7 +8,9 @@ static NSString *const kFPS        = @"vc.fps";
 static NSString *const kFrameMode  = @"vc.frameMode";
 static NSString *const kRTMPURL    = @"vc.rtmpURL";
 static NSString *const kMediaName  = @"vc.mediaName";
+static NSString *const kMediaPath  = @"vc.mediaPath";
 static NSString *const kLive       = @"vc.live";
+static NSString *const kCameraTarget = @"vc.cameraTarget";
 
 @implementation VCSettingsStore {
     NSUserDefaults *_defaults;
@@ -32,7 +35,10 @@ static NSString *const kLive       = @"vc.live";
             kFrameMode:  @(VCFrameModeFit),
             kRTMPURL:    [VCSettingsStore defaultRTMPURL],
             kLive:       @NO,
+            kCameraTarget: @0,
         }];
+        _socket = [[VCClientSocket alloc] init];
+        [_socket connectToHost:@"127.0.0.1" port:22222];
     }
     return self;
 }
@@ -52,8 +58,9 @@ static NSString *const kLive       = @"vc.live";
 - (void)setSourceType:(VCSourceType)sourceType {
     if (sourceType == self.sourceType) return;
     [_defaults setInteger:sourceType forKey:kSourceType];
-    // Nguồn đổi thì media đã chọn cho nguồn cũ không còn hợp lệ.
     [_defaults removeObjectForKey:kMediaName];
+    [_defaults removeObjectForKey:kMediaPath];
+    [_socket sendInt32:1020 value:(int32_t)sourceType];
     [self notify:@"sourceType"];
 }
 
@@ -64,6 +71,7 @@ static NSString *const kLive       = @"vc.live";
 - (void)setFps:(NSInteger)fps {
     if (![[VCSettingsStore supportedFPS] containsObject:@(fps)] || fps == self.fps) return;
     [_defaults setInteger:fps forKey:kFPS];
+    [_socket sendInt32:1027 value:(int32_t)fps];
     [self notify:@"fps"];
 }
 
@@ -73,6 +81,7 @@ static NSString *const kLive       = @"vc.live";
 - (void)setFrameMode:(VCFrameMode)frameMode {
     if (frameMode == self.frameMode) return;
     [_defaults setInteger:frameMode forKey:kFrameMode];
+    [_socket sendInt32:1025 value:(int32_t)frameMode];
     [self notify:@"frameMode"];
 }
 
@@ -94,17 +103,43 @@ static NSString *const kLive       = @"vc.live";
     [self notify:@"mediaName"];
 }
 
+- (NSString *)mediaPath { return [_defaults stringForKey:kMediaPath]; }
+- (void)setMediaPath:(NSString *)mediaPath {
+    if (mediaPath) {
+        [_defaults setObject:mediaPath forKey:kMediaPath];
+        [_socket sendInt32:1022 string:mediaPath];
+    } else {
+        [_defaults removeObjectForKey:kMediaPath];
+    }
+    [self notify:@"mediaPath"];
+}
+
+- (NSInteger)cameraTarget { return [_defaults integerForKey:kCameraTarget]; }
+- (void)setCameraTarget:(NSInteger)cameraTarget {
+    if (cameraTarget == self.cameraTarget) return;
+    [_defaults setInteger:cameraTarget forKey:kCameraTarget];
+    [_socket sendInt32:1029 value:(int32_t)cameraTarget];
+    [self notify:@"cameraTarget"];
+}
+
 - (BOOL)isLive { return [_defaults boolForKey:kLive]; }
 - (void)setLive:(BOOL)live {
     if (live == self.isLive) return;
     [_defaults setBool:live forKey:kLive];
+    VCSourceType src = self.sourceType;
+    if (src == VCSourceTypeRTMP) {
+        [_socket sendInt32:live ? 1000 : 1001];
+    } else {
+        [_socket sendInt32:1023 value:(int32_t)(live ? 1 : 0)];
+    }
     [self notify:@"live"];
 }
 
 - (void)resetToDefaults {
-    for (NSString *k in @[ kSourceType, kFPS, kFrameMode, kRTMPURL, kMediaName, kLive ]) {
+    for (NSString *k in @[ kSourceType, kFPS, kFrameMode, kRTMPURL, kMediaName, kMediaPath, kLive, kCameraTarget ]) {
         [_defaults removeObjectForKey:k];
     }
+    [_socket sendInt32:1001];
     [self notify:@"*"];
 }
 

@@ -2,7 +2,6 @@
 #import "VCSettingsStore.h"
 #import "VCTheme.h"
 
-static NSString *const kCameraTarget = @"vc.cameraTarget";   // 0 cả hai, 1 cam sau, 2 cam trước
 static NSString *const kControlMenu  = @"vc.controlMenu";    // nút nổi trong app khác
 
 typedef NS_ENUM(NSInteger, VCSection) {
@@ -24,7 +23,11 @@ typedef NS_ENUM(NSInteger, VCSection) {
     self.tableView.backgroundColor = [VCTheme background];
     self.tableView.separatorColor = [VCTheme cardBorder];
     self.tableView.tableHeaderView = [self buildHeader];
-    [[NSUserDefaults standardUserDefaults] registerDefaults:@{ kCameraTarget: @0, kControlMenu: @NO }];
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{ kControlMenu: @NO }];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(reloadTableView)
+                                                 name:VCSettingsDidChangeNotification
+                                               object:nil];
 }
 
 - (UIView *)buildHeader {
@@ -114,7 +117,7 @@ typedef NS_ENUM(NSInteger, VCSection) {
         case VCSectionCamera: {
             UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:@[ @"Cả hai", @"Cam sau", @"Cam trước" ]];
             [VCTheme styleSegmentedControl:seg];
-            NSInteger v = [d integerForKey:kCameraTarget];
+            NSInteger v = [VCSettingsStore shared].cameraTarget;
             seg.selectedSegmentIndex = (v < 0 || v > 2) ? 0 : v;
             [seg addTarget:self action:@selector(cameraTargetChanged:) forControlEvents:UIControlEventValueChanged];
             seg.translatesAutoresizingMaskIntoConstraints = NO;
@@ -169,9 +172,7 @@ typedef NS_ENUM(NSInteger, VCSection) {
                                                         preferredStyle:UIAlertControllerStyleActionSheet];
     [a addAction:[UIAlertAction actionWithTitle:@"Đặt lại" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *x) {
         [[VCSettingsStore shared] resetToDefaults];
-        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-        [d removeObjectForKey:kCameraTarget];
-        [d removeObjectForKey:kControlMenu];
+        [[NSUserDefaults standardUserDefaults] removeObjectForKey:kControlMenu];
         [self.tableView reloadData];
     }]];
     [a addAction:[UIAlertAction actionWithTitle:@"Huỷ" style:UIAlertActionStyleCancel handler:nil]];
@@ -184,7 +185,15 @@ typedef NS_ENUM(NSInteger, VCSection) {
 #pragma mark - Actions
 
 - (void)cameraTargetChanged:(UISegmentedControl *)seg {
-    [[NSUserDefaults standardUserDefaults] setInteger:seg.selectedSegmentIndex forKey:kCameraTarget];
+    [VCSettingsStore shared].cameraTarget = seg.selectedSegmentIndex;
+}
+
+- (void)reloadTableView {
+    [self.tableView reloadData];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
 - (void)controlMenuToggled:(UISwitch *)sw {

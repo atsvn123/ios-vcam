@@ -68,8 +68,10 @@ jobs:
           dpkg-deb -c "$DEB"
           dpkg-deb -x "$DEB" /tmp/chk
           lipo -archs /tmp/chk/var/jb/Applications/VCam.app/VCam
+          lipo -archs /tmp/chk/var/jb/Library/MobileSubstrate/DynamicLibraries/vcamera.dylib
           test -f /tmp/chk/var/jb/Applications/VCam.app/Info.plist
           test -f /tmp/chk/var/jb/Applications/VCam.app/AppIcon60x60@2x.png
+          test -f /tmp/chk/var/jb/Library/MobileSubstrate/DynamicLibraries/vcamera.plist
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v5

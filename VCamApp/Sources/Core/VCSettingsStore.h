@@ -16,10 +16,11 @@ typedef NS_ENUM(NSInteger, VCFrameMode) {
 /// Post khi bất kỳ giá trị nào thay đổi. userInfo[@"key"] = tên property.
 extern NSNotificationName const VCSettingsDidChangeNotification;
 
-/// Trạng thái UI của app, lưu trong NSUserDefaults.
-/// Hiện chỉ là state cục bộ; khi port chức năng sẽ nối sang bridge
-/// gửi tới tweak (mediaserverd) tại một chỗ duy nhất là class này.
+@class VCClientSocket;
+
 @interface VCSettingsStore : NSObject
+
+@property (nonatomic, readonly) VCClientSocket *socket;
 
 + (instancetype)shared;
 
@@ -27,8 +28,10 @@ extern NSNotificationName const VCSettingsDidChangeNotification;
 @property (nonatomic) NSInteger fps;              // 1, 10, 15, 30
 @property (nonatomic) VCFrameMode frameMode;
 @property (nonatomic, copy) NSString *rtmpURL;
-@property (nonatomic, copy, nullable) NSString *mediaName; // tên file ảnh/video đã chọn (placeholder)
+@property (nonatomic, copy, nullable) NSString *mediaName;
+@property (nonatomic, copy, nullable) NSString *mediaPath;
 @property (nonatomic, getter=isLive) BOOL live;
+@property (nonatomic) NSInteger cameraTarget; // 0=both, 1=rear, 2=front
 
 + (NSArray<NSNumber *> *)supportedFPS;
 + (NSString *)defaultRTMPURL;
