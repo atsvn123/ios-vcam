@@ -23,7 +23,7 @@ static NSString *const kCameraTarget = @"vc.cameraTarget";
     return s;
 }
 
-+ (NSArray<NSNumber *> *)supportedFPS { return @[ @1, @10, @15, @30 ]; }
++ (NSArray<NSNumber *> *)supportedFPS { return @[ @0, @10, @15, @30 ]; }
 + (NSString *)defaultRTMPURL { return @"rtmp://127.0.0.1:1935/live"; }
 
 - (instancetype)init {
@@ -31,7 +31,7 @@ static NSString *const kCameraTarget = @"vc.cameraTarget";
         _defaults = [NSUserDefaults standardUserDefaults];
         [_defaults registerDefaults:@{
             kSourceType: @(VCSourceTypeRTMP),
-            kFPS:        @30,
+            kFPS:        @0,
             kFrameMode:  @(VCFrameModeFit),
             kRTMPURL:    [VCSettingsStore defaultRTMPURL],
             kLive:       @NO,
@@ -41,6 +41,10 @@ static NSString *const kCameraTarget = @"vc.cameraTarget";
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(_socketDidConnect:)
                                                      name:VCClientSocketDidConnectNotification
+                                                   object:_socket];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(_cameraResolutionUpdated:)
+                                                     name:VCClientSocketCameraResolutionNotification
                                                    object:_socket];
         [_socket connectToHost:@"127.0.0.1" port:22222];
     }
@@ -62,6 +66,10 @@ static NSString *const kCameraTarget = @"vc.cameraTarget";
             [_socket sendInt32:1023 value:1];
         }
     }
+}
+
+- (void)_cameraResolutionUpdated:(NSNotification *)note {
+    [self notify:@"cameraResolution"];
 }
 
 - (void)notify:(NSString *)key {
@@ -87,7 +95,7 @@ static NSString *const kCameraTarget = @"vc.cameraTarget";
 
 - (NSInteger)fps {
     NSInteger v = [_defaults integerForKey:kFPS];
-    return [[VCSettingsStore supportedFPS] containsObject:@(v)] ? v : 30;
+    return [[VCSettingsStore supportedFPS] containsObject:@(v)] ? v : 0;
 }
 - (void)setFps:(NSInteger)fps {
     if (![[VCSettingsStore supportedFPS] containsObject:@(fps)] || fps == self.fps) return;

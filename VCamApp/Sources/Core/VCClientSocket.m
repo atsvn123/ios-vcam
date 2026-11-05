@@ -6,6 +6,7 @@
 #include <string.h>
 
 NSNotificationName const VCClientSocketDidConnectNotification = @"VCClientSocketDidConnectNotification";
+NSNotificationName const VCClientSocketCameraResolutionNotification = @"VCClientSocketCameraResolutionNotification";
 
 @implementation VCClientSocket {
     int _fd;
@@ -14,6 +15,7 @@ NSNotificationName const VCClientSocketDidConnectNotification = @"VCClientSocket
     uint16_t _port;
     BOOL _wantConnect;
     NSTimeInterval _retryDelay;
+    NSMutableData *_incomingBuffer;
 }
 
 static const NSTimeInterval kMinRetry = 0.5;
@@ -69,6 +71,8 @@ static const NSTimeInterval kMaxRetry = 8.0;
     _fd = fd;
     _retryDelay = kMinRetry;
 
+    [self _startReadLoop:fd];
+
     dispatch_async(dispatch_get_main_queue(), ^{
         [[NSNotificationCenter defaultCenter]
             postNotificationName:VCClientSocketDidConnectNotification
@@ -84,6 +88,45 @@ static const NSTimeInterval kMaxRetry = 8.0;
                    _queue, ^{
         [self _attemptConnect];
     });
+}
+
+- (void)_startReadLoop:(int)fd {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        uint8_t buf[256];
+        while (1) {
+            ssize_t n = recv(fd, buf, sizeof(buf), 0);
+            if (n <= 0) break;
+            NSData *chunk = [[NSData alloc] initWithBytes:buf length:(NSUInteger)n];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self _handleIncoming:chunk];
+            });
+        }
+    });
+}
+
+- (void)_handleIncoming:(NSData *)chunk {
+    if (!_incomingBuffer) _incomingBuffer = [NSMutableData data];
+    [_incomingBuffer appendData:chunk];
+    while (_incomingBuffer.length >= 4) {
+        const uint8_t *bytes = (const uint8_t *)_incomingBuffer.bytes;
+        int32_t code;
+        memcpy(&code, bytes, 4);
+        if (code == 1007) {
+            if (_incomingBuffer.length < 12) break;
+            int32_t w, h;
+            memcpy(&w, bytes + 4, 4);
+            memcpy(&h, bytes + 8, 4);
+            [_incomingBuffer replaceBytesInRange:NSMakeRange(0, 12) withBytes:NULL length:0];
+            NSDictionary *info = @{ @"width": @(w), @"height": @(h) };
+            [[NSNotificationCenter defaultCenter]
+                postNotificationName:VCClientSocketCameraResolutionNotification
+                              object:self
+                            userInfo:info];
+        } else {
+            [_incomingBuffer setLength:0];
+            break;
+        }
+    }
 }
 
 - (void)disconnect {

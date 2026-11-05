@@ -90,7 +90,7 @@ static BOOL vcam_fill_black(CVPixelBufferRef buffer) {
         _lock = [NSRecursiveLock new];
         _mediaType = 0;
         _mediaFitMode = 0;
-        _performanceFPS = 30;
+        _performanceFPS = 0;
         _mediaLoop = YES;
         _videoDetectedRotation = -1;
         _mediaQueue = dispatch_queue_create("com.vcam.media", DISPATCH_QUEUE_SERIAL);
@@ -353,7 +353,7 @@ static BOOL vcam_fill_black(CVPixelBufferRef buffer) {
 }
 
 - (void)setPerformanceFPS:(int)fps {
-    if (fps <= 0) fps = 30;
+    if (fps < 0) fps = 0;
     if (fps > 60) fps = 60;
     [_lock lock];
     _performanceFPS = fps;
@@ -510,6 +510,7 @@ static BOOL vcam_fill_black(CVPixelBufferRef buffer) {
     _videoDetectedRotation = detectedRotation;
     _videoReader = reader;
     _videoTrackOutput = output;
+    _lastSourceFrameUpdate = 0;
     [_lock unlock];
 
     // Read frames with wall-clock pacing
@@ -551,10 +552,19 @@ static BOOL vcam_fill_black(CVPixelBufferRef buffer) {
             usleep(15000);
         }
 
-        // Publish frame
+        // Publish frame (with optional FPS throttle for video)
         [_lock lock];
         BOOL stillCurrent = (_userIntentLive && _mediaType == 2 &&
                              _videoReader == reader && [_mediaPath isEqualToString:path]);
+        if (stillCurrent && _performanceFPS > 0) {
+            CFTimeInterval targetPeriod = 1.0 / (CFTimeInterval)_performanceFPS;
+            CFTimeInterval now = CACurrentMediaTime();
+            if (_lastSourceFrameUpdate > 0 && (now - _lastSourceFrameUpdate) < targetPeriod * 0.85) {
+                stillCurrent = NO;
+            } else {
+                _lastSourceFrameUpdate = now;
+            }
+        }
         if (stillCurrent) {
             CMSampleBufferRef replacement = (CMSampleBufferRef)CFRetain(sbuf);
             if (_liveYUVSampleBuffer) CFRelease(_liveYUVSampleBuffer);

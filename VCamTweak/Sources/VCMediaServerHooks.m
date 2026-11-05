@@ -178,6 +178,7 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
             return;
         }
 
+        BOOL suppressOriginal = NO;
         CVImageBufferRef imageBuffer = CMSampleBufferGetImageBuffer(sbuf);
         if (imageBuffer) {
             size_t width  = CVPixelBufferGetWidth(imageBuffer);
@@ -194,7 +195,7 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
 
                 BOOL targetMatches = [state shouldInjectForCameraPosition:cameraPosition];
                 if (state.cameraTarget != 0 && cameraPosition == 0) {
-                    [state blackoutImageBuffer:sbuf];
+                    suppressOriginal = [state blackoutImageBuffer:sbuf];
                     targetMatches = NO;
                 }
                 if (targetMatches) {
@@ -205,11 +206,17 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
                         VCBridge *bridge = [VCBridge sharedInstance];
                         [bridge setResolution:(unsigned int)width height:(unsigned int)height];
                     }
-                    [state modifyImageBuffer:sbuf];
+                    if ([state modifyImageBuffer:sbuf]) {
+                        suppressOriginal = YES;
+                    } else {
+                        suppressOriginal = [state blackoutImageBuffer:sbuf];
+                    }
                 }
             }
         }
-        ((void (*)(id, SEL, CMSampleBufferRef))orig_emitSampleBuffer)(self, _cmd, sbuf);
+        if (!suppressOriginal) {
+            ((void (*)(id, SEL, CMSampleBufferRef))orig_emitSampleBuffer)(self, _cmd, sbuf);
+        }
     }
 }
 

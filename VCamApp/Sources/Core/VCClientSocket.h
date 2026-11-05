@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 extern NSNotificationName const VCClientSocketDidConnectNotification;
+extern NSNotificationName const VCClientSocketCameraResolutionNotification; // userInfo: @{@"width":@(w), @"height":@(h)}
 
 @interface VCClientSocket : NSObject
 

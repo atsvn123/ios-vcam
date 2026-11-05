@@ -155,7 +155,7 @@
 
 - (void)buildFPSCard {
     _fpsCard = [[VCCardView alloc] initWithTitle:@"Hiệu năng / FPS" dotColor:[VCTheme accentRed]];
-    _fpsSeg = [[UISegmentedControl alloc] initWithItems:@[ @"Tĩnh 1", @"10", @"15", @"30" ]];
+    _fpsSeg = [[UISegmentedControl alloc] initWithItems:@[ @"Tự động", @"10", @"15", @"30" ]];
     [VCTheme styleSegmentedControl:_fpsSeg];
     [_fpsSeg.heightAnchor constraintEqualToConstant:36].active = YES;
     [_fpsSeg addTarget:self action:@selector(fpsChanged:) forControlEvents:UIControlEventValueChanged];
@@ -253,15 +253,17 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
     _mediaNameLabel.text = s.mediaName.length ? s.mediaName
                                               : (isVideo ? @"Chưa chọn video" : @"Chưa chọn ảnh");
 
-    BOOL showFPS = (type == VCSourceTypeRTMP);
-    _fpsSeg.selectedSegmentIndex = showFPS ? VCIndexForFPS(s.fps) : (type == VCSourceTypePhoto ? 0 : 3);
+    BOOL showFPS = (type != VCSourceTypePhoto);
+    _fpsSeg.selectedSegmentIndex = showFPS ? VCIndexForFPS(s.fps) : 0;
     _fpsSeg.enabled = showFPS;
     _fpsSeg.alpha = showFPS ? 1.0 : 0.45;
 
     if (type == VCSourceTypePhoto) {
         _fpsHint.text = @"Nguồn Ảnh: chỉ inject 1 frame tĩnh, không tốn CPU.";
     } else if (isVideo) {
-        _fpsHint.text = @"Nguồn Video: sử dụng FPS gốc từ file, không cần throttle.";
+        _fpsHint.text = (s.fps == 0)
+            ? @"Nguồn Video: phát theo FPS gốc của file video."
+            : [NSString stringWithFormat:@"Nguồn Video: giới hạn %ld FPS, bỏ qua frame thừa.", (long)s.fps];
     } else {
         _fpsHint.text = @"FPS thấp giảm tải CPU và nhiệt.";
     }
@@ -354,6 +356,39 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
 
 #pragma mark - PHPickerViewControllerDelegate
 
+- (void)promptVideoFPS:(NSString *)filename path:(NSString *)path store:(VCSettingsStore *)s {
+    NSString *msg = [NSString stringWithFormat:@"File: %@", filename];
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"Cấu hình video"
+                         message:msg
+                  preferredStyle:UIAlertControllerStyleActionSheet];
+    void (^apply)(NSInteger) = ^(NSInteger fps) {
+        s.fps = fps;
+        s.mediaName = filename;
+        s.mediaPath = path;
+    };
+    [alert addAction:[UIAlertAction actionWithTitle:@"Tự động (FPS gốc)"
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(UIAlertAction *a) { apply(0); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"15 FPS"
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(UIAlertAction *a) { apply(15); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"30 FPS"
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(UIAlertAction *a) { apply(30); }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Hủy (giữ FPS hiện tại)"
+                                             style:UIAlertActionStyleCancel
+                                           handler:^(UIAlertAction *a) {
+        s.mediaName = filename;
+        s.mediaPath = path;
+    }]];
+    alert.popoverPresentationController.sourceView = self.view;
+    alert.popoverPresentationController.sourceRect =
+        CGRectMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2, 0, 0);
+    alert.popoverPresentationController.permittedArrowDirections = 0;
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
     PHPickerResult *result = results.firstObject;
@@ -386,8 +421,12 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!ok) { [self toast:@"Không thể sao chép file"]; return; }
             VCSettingsStore *s = [VCSettingsStore shared];
-            s.mediaName = filename;
-            s.mediaPath = destPath;
+            if (isVideo) {
+                [self promptVideoFPS:filename path:destPath store:s];
+            } else {
+                s.mediaName = filename;
+                s.mediaPath = destPath;
+            }
         });
     }];
 }

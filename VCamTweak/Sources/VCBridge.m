@@ -66,8 +66,15 @@ BOOL VCamIsEnabled(void) {
 }
 
 - (void)setResolution:(unsigned int)width height:(unsigned int)height {
+    if (_cameraWidth == width && _cameraHeight == height) return;
     _cameraWidth = width;
     _cameraHeight = height;
+    int32_t code = 1007, w = (int32_t)width, h = (int32_t)height;
+    NSMutableData *d = [NSMutableData dataWithCapacity:12];
+    [d appendBytes:&code length:4];
+    [d appendBytes:&w    length:4];
+    [d appendBytes:&h    length:4];
+    [_serverSocket sendAll:d];
 }
 
 - (void)parse:(NSMutableData *)buffer socketHandle:(int)socketHandle {
