@@ -85,7 +85,7 @@ static int vcam_position_from_object(id object) {
     return 0;
 }
 
-static int vcam_camera_position_for_node(id node, id *seen, int seenCount, int depth) {
+static int vcam_camera_position_for_node(id node, __unsafe_unretained id *seen, int seenCount, int depth) {
     if (!node || depth > 16) return 0;
     for (int i = 0; i < seenCount; i++) {
         if (seen[i] == node) return 0;
@@ -135,7 +135,7 @@ static int vcam_camera_position_for_output(id output) {
     if (!output || ![output respondsToSelector:@selector(node)]) return 0;
     int cached = vcam_cached_position(output);
     if (cached) return cached;
-    id seen[32] = {0};
+    __unsafe_unretained id seen[32] = {0};
     int position = vcam_camera_position_for_node([output node], seen, 0, 0);
     if (position) vcam_cache_position(output, position);
     return position;
