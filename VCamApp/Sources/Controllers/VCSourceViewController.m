@@ -3,9 +3,9 @@
 #import "VCTheme.h"
 #import "VCCardView.h"
 #import "VCLiveButton.h"
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <PhotosUI/PhotosUI.h>
 
-@interface VCSourceViewController () <UITextFieldDelegate, UIDocumentPickerDelegate>
+@interface VCSourceViewController () <UITextFieldDelegate, PHPickerViewControllerDelegate>
 @end
 
 @implementation VCSourceViewController {
@@ -304,17 +304,13 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
 
 - (void)pickMedia {
     VCSourceType type = [VCSettingsStore shared].sourceType;
-    NSArray<UTType *> *types;
-    if (type == VCSourceTypeVideo) {
-        types = @[UTTypeMovie, UTTypeMPEG4Movie, UTTypeQuickTimeMovie];
-    } else {
-        types = @[UTTypeImage, UTTypePNG, UTTypeJPEG];
-    }
-
-    UIDocumentPickerViewController *picker =
-        [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types];
+    PHPickerFilter *filter = (type == VCSourceTypeVideo) ? [PHPickerFilter videosFilter]
+                                                         : [PHPickerFilter imagesFilter];
+    PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
+    config.filter = filter;
+    config.selectionLimit = 1;
+    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
     picker.delegate = self;
-    picker.allowsMultipleSelection = NO;
     [self presentViewController:picker animated:YES completion:nil];
 }
 
@@ -356,36 +352,44 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
     }];
 }
 
-#pragma mark - UIDocumentPickerDelegate
+#pragma mark - PHPickerViewControllerDelegate
 
-- (void)documentPicker:(UIDocumentPickerViewController *)controller
-    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSURL *srcURL = urls.firstObject;
-    if (!srcURL) return;
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    PHPickerResult *result = results.firstObject;
+    if (!result) return;
 
-    BOOL accessed = [srcURL startAccessingSecurityScopedResource];
+    VCSourceType type = [VCSettingsStore shared].sourceType;
+    BOOL isVideo = (type == VCSourceTypeVideo);
+    NSString *typeId = isVideo ? @"public.movie" : @"public.image";
 
-    NSString *filename = srcURL.lastPathComponent;
+    if (![result.itemProvider hasItemConformingToTypeIdentifier:typeId]) {
+        [self toast:@"Định dạng không hỗ trợ"];
+        return;
+    }
+
     NSString *tmpDir = @"/var/mobile/tmp/vcam";
     NSFileManager *fm = [NSFileManager defaultManager];
     [fm createDirectoryAtPath:tmpDir withIntermediateDirectories:YES attributes:nil error:nil];
 
-    NSString *destPath = [tmpDir stringByAppendingPathComponent:filename];
-    [fm removeItemAtPath:destPath error:nil];
-
-    NSError *err = nil;
-    BOOL ok = [fm copyItemAtURL:srcURL toURL:[NSURL fileURLWithPath:destPath] error:&err];
-
-    if (accessed) [srcURL stopAccessingSecurityScopedResource];
-
-    if (!ok) {
-        [self toast:@"Không thể sao chép file"];
-        return;
-    }
-
-    VCSettingsStore *s = [VCSettingsStore shared];
-    s.mediaName = filename;
-    s.mediaPath = destPath;
+    [result.itemProvider loadFileRepresentationForTypeIdentifier:typeId
+        completionHandler:^(NSURL *url, NSError *error) {
+        if (!url) {
+            dispatch_async(dispatch_get_main_queue(), ^{ [self toast:@"Không thể tải file"]; });
+            return;
+        }
+        NSString *filename = url.lastPathComponent;
+        NSString *destPath = [tmpDir stringByAppendingPathComponent:filename];
+        [fm removeItemAtPath:destPath error:nil];
+        NSError *copyErr = nil;
+        BOOL ok = [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:destPath] error:&copyErr];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!ok) { [self toast:@"Không thể sao chép file"]; return; }
+            VCSettingsStore *s = [VCSettingsStore shared];
+            s.mediaName = filename;
+            s.mediaPath = destPath;
+        });
+    }];
 }
 
 #pragma mark - UITextFieldDelegate

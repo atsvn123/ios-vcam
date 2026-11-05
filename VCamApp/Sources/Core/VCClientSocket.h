@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
 
+extern NSNotificationName const VCClientSocketDidConnectNotification;
+
 @interface VCClientSocket : NSObject
 
 @property (nonatomic, readonly) BOOL isConnected;

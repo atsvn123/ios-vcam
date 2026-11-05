@@ -38,9 +38,30 @@ static NSString *const kCameraTarget = @"vc.cameraTarget";
             kCameraTarget: @0,
         }];
         _socket = [[VCClientSocket alloc] init];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(_socketDidConnect:)
+                                                     name:VCClientSocketDidConnectNotification
+                                                   object:_socket];
         [_socket connectToHost:@"127.0.0.1" port:22222];
     }
     return self;
+}
+
+- (void)_socketDidConnect:(NSNotification *)note {
+    VCSourceType src = self.sourceType;
+    [_socket sendInt32:1020 value:(int32_t)src];
+    [_socket sendInt32:1027 value:(int32_t)self.fps];
+    [_socket sendInt32:1025 value:(int32_t)self.frameMode];
+    [_socket sendInt32:1029 value:(int32_t)self.cameraTarget];
+    NSString *path = self.mediaPath;
+    if (path.length) [_socket sendInt32:1022 string:path];
+    if (self.isLive) {
+        if (src == VCSourceTypeRTMP) {
+            [_socket sendInt32:1000];
+        } else {
+            [_socket sendInt32:1023 value:1];
+        }
+    }
 }
 
 - (void)notify:(NSString *)key {
