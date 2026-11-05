@@ -7,21 +7,6 @@
 
 static VCLiveEngine *s_sharedEngine = nil;
 
-static void vcam_copy_color_attachments(CVPixelBufferRef source, CVPixelBufferRef dest) {
-    CVBufferRemoveAllAttachments(dest);
-    CFStringRef keys[] = {
-        kCVImageBufferColorPrimariesKey,
-        kCVImageBufferTransferFunctionKey,
-        kCVImageBufferYCbCrMatrixKey,
-        kCVImageBufferCGColorSpaceKey
-    };
-    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
-        CVAttachmentMode mode;
-        CFTypeRef value = CVBufferGetAttachment(source, keys[i], &mode);
-        if (value) CVBufferSetAttachment(dest, keys[i], value, mode);
-    }
-}
-
 static BOOL vcam_fill_black(CVPixelBufferRef buffer) {
     if (!buffer || CVPixelBufferLockBaseAddress(buffer, 0) != kCVReturnSuccess) return NO;
     OSType format = CVPixelBufferGetPixelFormatType(buffer);
@@ -529,7 +514,6 @@ static BOOL vcam_fill_black(CVPixelBufferRef buffer) {
 
     // Read frames with wall-clock pacing
     CMTime firstPTS = kCMTimeInvalid;
-    CMTime lastPublishedPTS = kCMTimeInvalid;
     CFTimeInterval playbackStart = 0.0;
 
     while (reader.status == AVAssetReaderStatusReading) {
@@ -575,7 +559,6 @@ static BOOL vcam_fill_black(CVPixelBufferRef buffer) {
             CMSampleBufferRef replacement = (CMSampleBufferRef)CFRetain(sbuf);
             if (_liveYUVSampleBuffer) CFRelease(_liveYUVSampleBuffer);
             _liveYUVSampleBuffer = replacement;
-            if (CMTIME_IS_VALID(pts)) lastPublishedPTS = pts;
         }
         [_lock unlock];
         CFRelease(sbuf);
