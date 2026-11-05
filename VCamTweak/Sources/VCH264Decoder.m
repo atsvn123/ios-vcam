@@ -32,7 +32,7 @@ static void decompressionCallback(void *decompressionOutputRefCon,
     CFRelease(fmt);
     if (!sbuf) return;
 
-    [decoder.delegate outputFrame:(__bridge void *)sbuf
+    [decoder.delegate outputFrame:(void *)sbuf
             presentationTimeStamp:pts.value
              presentationDuration:duration.value];
     CFRelease(sbuf);
