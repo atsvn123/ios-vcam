@@ -90,9 +90,9 @@ BOOL VCamIsEnabled(void) {
         if (code == 1000) {
             // LIVE ON (RTMP): set live state, start RTMP server
             [buffer replaceBytesInRange:NSMakeRange(0, 4) withBytes:NULL length:0];
-            [[VCLiveEngine sharedInstance] setMediaType:0];
             [[VCLiveEngine sharedInstance] setLiveUserIntent:YES];
             [[VCLiveEngine sharedInstance] setLive:YES];
+            // TODO: RTMP server start (port 1935) — will be wired when RTMPServer is ported
         }
         else if (code == 1001) {
             // LIVE OFF
@@ -106,7 +106,6 @@ BOOL VCamIsEnabled(void) {
             int32_t type;
             memcpy(&type, bytes + 4, 4);
             [buffer replaceBytesInRange:NSMakeRange(0, 8) withBytes:NULL length:0];
-            NSLog(@"[VCam] IPC source type=%d", (int)type);
             [[VCLiveEngine sharedInstance] setMediaType:(int)type];
         }
         else if (code == 1022) {
@@ -124,7 +123,6 @@ BOOL VCamIsEnabled(void) {
                                                     encoding:NSUTF8StringEncoding];
             [buffer replaceBytesInRange:NSMakeRange(0, totalLen) withBytes:NULL length:0];
             if (path) {
-                NSLog(@"[VCam] IPC media path=%@", path);
                 [[VCLiveEngine sharedInstance] setMediaPath:path];
             }
         }
@@ -135,7 +133,6 @@ BOOL VCamIsEnabled(void) {
             memcpy(&live, bytes + 4, 4);
             [buffer replaceBytesInRange:NSMakeRange(0, 8) withBytes:NULL length:0];
             BOOL on = (live == 1);
-            NSLog(@"[VCam] IPC media live=%d", on);
             [[VCLiveEngine sharedInstance] setLiveUserIntent:on];
             [[VCLiveEngine sharedInstance] setLive:on];
         }

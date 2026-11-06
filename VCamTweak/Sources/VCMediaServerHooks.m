@@ -185,6 +185,7 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
             size_t height = CVPixelBufferGetHeight(imageBuffer);
             VCLiveEngine *state = [VCLiveEngine existingInstance];
             BOOL isLive = state && [state getLive];
+
             if (isLive) {
                 int cameraPosition = vcam_position_from_sample_buffer(sbuf);
                 if (cameraPosition == 0) cameraPosition = vcam_camera_position_for_output(self);
