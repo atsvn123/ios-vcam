@@ -223,6 +223,10 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
     }
 }
 
+BOOL mediaServerHooksInstalled(void) {
+    return g_emitHookInstalled && g_sourceHookInstalled;
+}
+
 void installMediaServerHooks(void) {
     Class cls;
 
@@ -231,6 +235,7 @@ void installMediaServerHooks(void) {
         MSHookMessageEx(cls, @selector(emitSampleBuffer:),
                         (IMP)hook_emitSampleBuffer, (IMP *)&orig_emitSampleBuffer);
         g_emitHookInstalled = (orig_emitSampleBuffer != NULL);
+        if (g_emitHookInstalled) NSLog(@"[VCam] BWNodeOutput emitSampleBuffer hook installed");
     }
 
     cls = objc_getClass("BWFigVideoCaptureStream");
@@ -241,5 +246,6 @@ void installMediaServerHooks(void) {
                         (IMP)hook_sourceNodeWillEmitVideoSampleBuffer,
                         (IMP *)&orig_sourceNodeEmitVideoSampleBuffer);
         g_sourceHookInstalled = (orig_sourceNodeEmitVideoSampleBuffer != NULL);
+        if (g_sourceHookInstalled) NSLog(@"[VCam] BWFigVideoCaptureStream source hook installed");
     }
 }
