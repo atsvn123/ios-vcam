@@ -438,6 +438,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
             : kCVReturnError;
 
         if (status != noErr) {
+            NSLog(@"[VCam] modifyImageBuffer: transfer failed status=%d, resetting session", (int)status);
             CFTimeInterval now = CACurrentMediaTime();
             if (now - _lastInjectionReset >= 1.0) {
                 _lastInjectionReset = now;
@@ -478,6 +479,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 }
 
 - (void)setLiveUserIntent:(BOOL)intent {
+    NSLog(@"[VCam] setLiveUserIntent: %d, mediaType=%d, path='%@'", intent, _mediaType, _mediaPath);
     [_lock lock];
     _userIntentLive = intent;
     [_lock unlock];
@@ -513,6 +515,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 #pragma mark - Configuration
 
 - (void)setMediaType:(int)type {
+    NSLog(@"[VCam] setMediaType: %d", type);
     if (type < 0 || type > 2) return;
     [_lock lock];
     _mediaType = type;
@@ -538,6 +541,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 }
 
 - (void)setMediaPath:(NSString *)path {
+    NSLog(@"[VCam] setMediaPath: '%@'", path);
     NSString *newPath = [path copy];
     [_lock lock];
     BOOL pathChanged = ![_mediaPath isEqualToString:newPath];
@@ -611,9 +615,14 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
         [self->_lock unlock];
         if (!currentLoad) return;
 
-        NSDictionary *fileAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+        NSError *attrErr = nil;
+        NSDictionary *fileAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:&attrErr];
         unsigned long long fileSize = [[fileAttrs objectForKey:NSFileSize] unsignedLongLongValue];
-        if (fileSize == 0) return;
+        if (fileSize == 0) {
+            NSLog(@"[VCam] loadImageFile: cannot read '%@' (size=0, err=%@)", path, attrErr);
+            return;
+        }
+        NSLog(@"[VCam] loadImageFile: '%@' size=%llu", path, fileSize);
 
         CGImageRef cgImage = NULL;
         [self->_lock lock];
@@ -623,7 +632,10 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
         } else {
             [self->_lock unlock];
             NSData *imgData = [NSData dataWithContentsOfFile:path];
-            if (!imgData) return;
+            if (!imgData) {
+                NSLog(@"[VCam] loadImageFile: NSData read failed for '%@'", path);
+                return;
+            }
             CGImageSourceRef imgSource = CGImageSourceCreateWithData((CFDataRef)imgData, NULL);
             if (!imgSource) return;
             NSDictionary *thumbOpts = @{
@@ -714,7 +726,10 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
             BOOL stillCurrent = (generation == self->_mediaImageGeneration &&
                                  self->_mediaType == 1 &&
                                  [self->_mediaPath isEqualToString:path]);
-            if (stillCurrent) [self vcam_setMediaSampleBuffer:sbuf expectedType:1];
+            if (stillCurrent) {
+                NSLog(@"[VCam] loadImageFile: injecting BGRA %zux%zu", w, h);
+                [self vcam_setMediaSampleBuffer:sbuf expectedType:1];
+            }
             [self->_lock unlock];
             CFRelease(sbuf);
         }
@@ -738,7 +753,11 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 
     NSDictionary *fileAttrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
     unsigned long long fileSize = [[fileAttrs objectForKey:NSFileSize] unsignedLongLongValue];
-    if (fileSize == 0) return;
+    if (fileSize == 0) {
+        NSLog(@"[VCam] startVideoReader: cannot read '%@' (size=0)", path);
+        return;
+    }
+    NSLog(@"[VCam] startVideoReader: '%@' size=%llu", path, fileSize);
 
     NSURL *fileURL = [NSURL fileURLWithPath:path];
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:fileURL
@@ -781,10 +800,11 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     output.alwaysCopiesSampleData = NO;
 
     AVAssetReader *reader = [[AVAssetReader alloc] initWithAsset:asset error:nil];
-    if (!reader) return;
-    if (![reader canAddOutput:output]) return;
+    if (!reader) { NSLog(@"[VCam] startVideoReader: AVAssetReader alloc failed"); return; }
+    if (![reader canAddOutput:output]) { NSLog(@"[VCam] startVideoReader: canAddOutput=NO"); return; }
     [reader addOutput:output];
-    if (![reader startReading]) return;
+    if (![reader startReading]) { NSLog(@"[VCam] startVideoReader: startReading failed: %@", reader.error); return; }
+    NSLog(@"[VCam] startVideoReader: reading started, rotation=%d", detectedRotation);
 
     [_lock lock];
     if (sourceGeneration != _mediaImageGeneration || !_userIntentLive ||

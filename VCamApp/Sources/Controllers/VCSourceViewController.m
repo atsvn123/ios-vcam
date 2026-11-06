@@ -414,9 +414,10 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
         return;
     }
 
-    NSString *tmpDir = @"/var/mobile/tmp/vcam";
+    NSString *tmpDir = @"/tmp/vcam";
     NSFileManager *fm = [NSFileManager defaultManager];
-    [fm createDirectoryAtPath:tmpDir withIntermediateDirectories:YES attributes:nil error:nil];
+    NSDictionary *dirAttrs = @{ NSFilePosixPermissions: @0755 };
+    [fm createDirectoryAtPath:tmpDir withIntermediateDirectories:YES attributes:dirAttrs error:nil];
 
     [result.itemProvider loadFileRepresentationForTypeIdentifier:typeId
         completionHandler:^(NSURL *url, NSError *error) {
@@ -429,6 +430,10 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
         [fm removeItemAtPath:destPath error:nil];
         NSError *copyErr = nil;
         BOOL ok = [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:destPath] error:&copyErr];
+        if (ok) {
+            NSDictionary *fileAttrs = @{ NSFilePosixPermissions: @0644 };
+            [fm setAttributes:fileAttrs ofItemAtPath:destPath error:nil];
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!ok) { [self toast:@"Không thể sao chép file"]; return; }
             VCSettingsStore *s = [VCSettingsStore shared];
