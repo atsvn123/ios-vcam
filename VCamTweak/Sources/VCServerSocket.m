@@ -115,11 +115,16 @@ static void socketAcceptCallback(CFSocketRef s, CFSocketCallBackType type,
     @synchronized(_clients) {
         snapshot = [_clients copy];
     }
-    const void *bytes = data.bytes;
-    NSUInteger len = data.length;
+    const uint8_t *bytes = data.bytes;
+    size_t len = data.length;
     for (NSNumber *fdNum in snapshot) {
         int fd = fdNum.intValue;
-        send(fd, bytes, len, 0);
+        size_t sentTotal = 0;
+        while (sentTotal < len) {
+            ssize_t sent = send(fd, bytes + sentTotal, len - sentTotal, 0);
+            if (sent <= 0) break;
+            sentTotal += (size_t)sent;
+        }
     }
 }
 

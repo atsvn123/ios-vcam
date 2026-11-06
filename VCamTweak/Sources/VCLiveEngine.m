@@ -126,7 +126,8 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
                          kVTPixelTransferPropertyKey_DestinationYCbCrMatrix,
                          kCVImageBufferYCbCrMatrix_ITU_R_601_4);
     VTSessionSetProperty((VTSessionRef)*slot, kVTPixelTransferPropertyKey_ScalingMode,
-        (_mediaType == 0 || _mediaFitMode == 1) ? kVTScalingMode_Trim : CFSTR("Letterbox"));
+        (_mediaType == 0 || _mediaFitMode == 1)
+            ? kVTScalingMode_Trim : kVTScalingMode_Letterbox);
     VTSessionSetProperty((VTSessionRef)*slot,
         kVTPixelTransferPropertyKey_EnableGPUAcceleratedTransfer, kCFBooleanTrue);
 }
@@ -168,7 +169,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
                              kCVImageBufferYCbCrMatrix_ITU_R_601_4);
         VTSessionSetProperty((VTSessionRef)_mediaTransferSession,
                              kVTPixelTransferPropertyKey_ScalingMode,
-                             CFSTR("Letterbox"));
+                             kVTScalingMode_Letterbox);
         VTSessionSetProperty((VTSessionRef)_mediaTransferSession,
                              kVTPixelTransferPropertyKey_EnableGPUAcceleratedTransfer,
                              kCFBooleanTrue);
@@ -494,11 +495,14 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
         [_lock lock];
         BOOL readerUnavailable = (!_videoReader ||
                                   _videoReader.status != AVAssetReaderStatusReading);
-        NSString *path = (_mediaType == 2 && readerUnavailable && _mediaPath.length > 0)
+        NSString *path = (_mediaType != 0 && _mediaPath.length > 0)
             ? [_mediaPath copy] : nil;
+        BOOL reloadImage = (_mediaType == 1 && !_liveYUVSampleBuffer && path.length > 0);
+        BOOL startVideo = (_mediaType == 2 && readerUnavailable && path.length > 0);
         NSUInteger generation = _mediaImageGeneration;
         [_lock unlock];
-        if (path) {
+        if (reloadImage) [self loadImageFile:path];
+        if (startVideo) {
             dispatch_async(_mediaQueue, ^{
                 if (generation == self->_mediaImageGeneration && self->_userIntentLive &&
                     self->_mediaType == 2 && (!self->_videoReader ||
@@ -581,7 +585,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     [_lock lock];
     if (_mediaFitMode == mode) { [_lock unlock]; return; }
     _mediaFitMode = mode;
-    CFStringRef scalingMode = (mode == 1) ? CFSTR("Trim") : CFSTR("Letterbox");
+    CFStringRef scalingMode = (mode == 1) ? kVTScalingMode_Trim : kVTScalingMode_Letterbox;
     VTSessionSetProperty((VTSessionRef)_mediaTransferSession,
                          kVTPixelTransferPropertyKey_ScalingMode,
                          scalingMode);
@@ -589,7 +593,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 }
 
 - (void)setPerformanceFPS:(int)fps {
-    if (fps <= 0) fps = 30;
+    if (fps < 0) fps = 0;
     if (fps > 60) fps = 60;
     [_lock lock];
     if (_performanceFPS == fps) { [_lock unlock]; return; }
@@ -761,7 +765,7 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 
     NSURL *fileURL = [NSURL fileURLWithPath:path];
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:fileURL
-                                            options:@{ AVURLAssetPreferPreciseDurationAndTimingKey: @YES }];
+                                            options:@{ AVURLAssetPreferPreciseDurationAndTimingKey: @NO }];
 
     dispatch_semaphore_t sema = dispatch_semaphore_create(0);
     [asset loadValuesAsynchronouslyForKeys:@[@"tracks", @"duration"] completionHandler:^{
@@ -769,17 +773,26 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     }];
     dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC));
     long waitResult = dispatch_semaphore_wait(sema, timeout);
-    if (waitResult != 0) return;
+    if (waitResult != 0) {
+        NSLog(@"[VCam] startVideoReader: asset metadata timed out for '%@'", path);
+        return;
+    }
 
     NSError *trackError = nil;
     AVKeyValueStatus trackStatus = [asset statusOfValueForKey:@"tracks" error:&trackError];
-    if (trackStatus != AVKeyValueStatusLoaded) return;
+    if (trackStatus != AVKeyValueStatusLoaded) {
+        NSLog(@"[VCam] startVideoReader: tracks status=%ld error=%@", (long)trackStatus, trackError);
+        return;
+    }
 
     AVAssetTrack *videoTrack = nil;
     for (AVAssetTrack *t in [asset tracksWithMediaType:AVMediaTypeVideo]) {
         videoTrack = t; break;
     }
-    if (!videoTrack) return;
+    if (!videoTrack) {
+        NSLog(@"[VCam] startVideoReader: no video track in '%@'", path);
+        return;
+    }
 
     CGAffineTransform transform = videoTrack.preferredTransform;
     CGFloat angle = atan2(transform.b, transform.a) * 180.0 / M_PI;
@@ -799,9 +812,10 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
                            outputSettings:settings];
     output.alwaysCopiesSampleData = NO;
 
-    AVAssetReader *reader = [[AVAssetReader alloc] initWithAsset:asset error:nil];
-    if (!reader) { NSLog(@"[VCam] startVideoReader: AVAssetReader alloc failed"); return; }
-    if (![reader canAddOutput:output]) { NSLog(@"[VCam] startVideoReader: canAddOutput=NO"); return; }
+    NSError *readerError = nil;
+    AVAssetReader *reader = [[AVAssetReader alloc] initWithAsset:asset error:&readerError];
+    if (!reader) { NSLog(@"[VCam] startVideoReader: AVAssetReader init failed: %@", readerError); return; }
+    if (![reader canAddOutput:output]) { NSLog(@"[VCam] startVideoReader: canAddOutput=NO for '%@'", path); return; }
     [reader addOutput:output];
     if (![reader startReading]) { NSLog(@"[VCam] startVideoReader: startReading failed: %@", reader.error); return; }
     NSLog(@"[VCam] startVideoReader: reading started, rotation=%d", detectedRotation);
@@ -839,7 +853,12 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
             playbackStart = CACurrentMediaTime();
         }
         CMSampleBufferRef sbuf = [output copyNextSampleBuffer];
-        if (!sbuf) break;
+        if (!sbuf) {
+            if (reader.status == AVAssetReaderStatusFailed) {
+                NSLog(@"[VCam] startVideoReader: frame read failed: %@", reader.error);
+            }
+            break;
+        }
 
         CMTime pts = CMSampleBufferGetPresentationTimeStamp(sbuf);
         BOOL publishFrame = YES;

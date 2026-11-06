@@ -42,15 +42,24 @@ static void decompressionCallback(void *decompressionOutputRefCon,
                 pps:(const uint8_t *)ppsData ppsSize:(size_t)ppsSize {
     [self endDecode];
 
-    // Save SPS/PPS for reinit
-    free(_savedSPS);
-    _savedSPS = malloc(spsSize);
-    memcpy(_savedSPS, spsData, spsSize);
-    _savedSPSSize = spsSize;
+    if (!spsData || !ppsData || spsSize == 0 || ppsSize == 0 ||
+        spsSize > 1024 * 1024 || ppsSize > 1024 * 1024) return NO;
 
+    // Save SPS/PPS for decoder recreation after session teardown.
+    uint8_t *newSPS = malloc(spsSize);
+    uint8_t *newPPS = malloc(ppsSize);
+    if (!newSPS || !newPPS) {
+        free(newSPS);
+        free(newPPS);
+        return NO;
+    }
+    memcpy(newSPS, spsData, spsSize);
+    memcpy(newPPS, ppsData, ppsSize);
+    free(_savedSPS);
     free(_savedPPS);
-    _savedPPS = malloc(ppsSize);
-    memcpy(_savedPPS, ppsData, ppsSize);
+    _savedSPS = newSPS;
+    _savedSPSSize = spsSize;
+    _savedPPS = newPPS;
     _savedPPSSize = ppsSize;
 
     const uint8_t *paramSets[] = {spsData, ppsData};
@@ -78,13 +87,20 @@ static void decompressionCallback(void *decompressionOutputRefCon,
 }
 
 - (void)decode:(const uint8_t *)data size:(size_t)size pts:(int32_t)pts {
-    if (!_session || !data || size < 5) return;
+    if (!_session || !data || size < 5 || size > 16 * 1024 * 1024) return;
+
+    void *ownedData = malloc(size);
+    if (!ownedData) return;
+    memcpy(ownedData, data, size);
 
     CMBlockBufferRef blockBuf = NULL;
     OSStatus status = CMBlockBufferCreateWithMemoryBlock(
-        kCFAllocatorDefault, (void *)data, size, kCFAllocatorNull,
+        kCFAllocatorDefault, ownedData, size, kCFAllocatorMalloc,
         NULL, 0, size, 0, &blockBuf);
-    if (status != noErr || !blockBuf) return;
+    if (status != noErr || !blockBuf) {
+        free(ownedData);
+        return;
+    }
 
     CMSampleBufferRef sbuf = NULL;
     const size_t sampleSize = size;

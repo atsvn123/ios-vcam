@@ -416,8 +416,12 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
 
     NSString *tmpDir = @"/tmp/vcam";
     NSFileManager *fm = [NSFileManager defaultManager];
-    NSDictionary *dirAttrs = @{ NSFilePosixPermissions: @0755 };
+    NSDictionary *dirAttrs = @{
+        NSFileProtectionKey: NSFileProtectionNone,
+        NSFilePosixPermissions: @0755,
+    };
     [fm createDirectoryAtPath:tmpDir withIntermediateDirectories:YES attributes:dirAttrs error:nil];
+    [fm setAttributes:dirAttrs ofItemAtPath:tmpDir error:nil];
 
     [result.itemProvider loadFileRepresentationForTypeIdentifier:typeId
         completionHandler:^(NSURL *url, NSError *error) {
@@ -426,12 +430,16 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
             return;
         }
         NSString *filename = url.lastPathComponent;
-        NSString *destPath = [tmpDir stringByAppendingPathComponent:filename];
-        [fm removeItemAtPath:destPath error:nil];
+        NSString *extension = filename.pathExtension.length ? filename.pathExtension : (isVideo ? @"mov" : @"jpg");
+        NSString *storedName = [NSString stringWithFormat:@"vcam_%@.%@", NSUUID.UUID.UUIDString, extension];
+        NSString *destPath = [tmpDir stringByAppendingPathComponent:storedName];
         NSError *copyErr = nil;
         BOOL ok = [fm copyItemAtURL:url toURL:[NSURL fileURLWithPath:destPath] error:&copyErr];
         if (ok) {
-            NSDictionary *fileAttrs = @{ NSFilePosixPermissions: @0644 };
+            NSDictionary *fileAttrs = @{
+                NSFileProtectionKey: NSFileProtectionNone,
+                NSFilePosixPermissions: @0644,
+            };
             [fm setAttributes:fileAttrs ofItemAtPath:destPath error:nil];
         }
         dispatch_async(dispatch_get_main_queue(), ^{

@@ -101,6 +101,13 @@ static const NSTimeInterval kMaxRetry = 8.0;
                 [self _handleIncoming:chunk];
             });
         }
+        dispatch_async(self->_queue, ^{
+            if (self->_fd == fd) {
+                close(self->_fd);
+                self->_fd = -1;
+                [self _scheduleReconnect];
+            }
+        });
     });
 }
 
@@ -143,11 +150,18 @@ static const NSTimeInterval kMaxRetry = 8.0;
     if (!data.length) return;
     dispatch_async(_queue, ^{
         if (self->_fd < 0) return;
-        ssize_t sent = send(self->_fd, data.bytes, data.length, 0);
-        if (sent < 0) {
-            close(self->_fd);
-            self->_fd = -1;
-            [self _scheduleReconnect];
+        const uint8_t *bytes = data.bytes;
+        size_t remaining = data.length;
+        while (remaining > 0) {
+            ssize_t sent = send(self->_fd, bytes, remaining, 0);
+            if (sent <= 0) {
+                close(self->_fd);
+                self->_fd = -1;
+                [self _scheduleReconnect];
+                return;
+            }
+            bytes += sent;
+            remaining -= (size_t)sent;
         }
     });
 }

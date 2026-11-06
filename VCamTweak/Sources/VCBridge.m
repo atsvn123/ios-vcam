@@ -1,6 +1,7 @@
 #import "VCBridge.h"
 #import "VCServerSocket.h"
 #import "VCLiveEngine.h"
+#import "VCRTMPServer.h"
 #include <string.h>
 
 static VCBridge *s_sharedBridge = nil;
@@ -80,6 +81,7 @@ BOOL VCamIsEnabled(void) {
 - (void)parse:(NSMutableData *)buffer socketHandle:(int)socketHandle {
     if (!VCamIsEnabled()) {
         [buffer setLength:0];
+        [[VCRTMPServer sharedInstance] stopServer];
         return;
     }
     while (buffer.length >= 4) {
@@ -90,15 +92,17 @@ BOOL VCamIsEnabled(void) {
         if (code == 1000) {
             // LIVE ON (RTMP): set live state, start RTMP server
             [buffer replaceBytesInRange:NSMakeRange(0, 4) withBytes:NULL length:0];
+            [[VCLiveEngine sharedInstance] setMediaType:0];
             [[VCLiveEngine sharedInstance] setLiveUserIntent:YES];
             [[VCLiveEngine sharedInstance] setLive:YES];
-            // TODO: RTMP server start (port 1935) — will be wired when RTMPServer is ported
+            [[VCRTMPServer sharedInstance] startServerLoop];
         }
         else if (code == 1001) {
             // LIVE OFF
             [buffer replaceBytesInRange:NSMakeRange(0, 4) withBytes:NULL length:0];
             [[VCLiveEngine sharedInstance] setLiveUserIntent:NO];
             [[VCLiveEngine sharedInstance] setLive:NO];
+            [[VCRTMPServer sharedInstance] pauseServerLoop];
         }
         else if (code == 1020) {
             // Media source type: 0=RTMP, 1=Image, 2=Video
@@ -107,6 +111,7 @@ BOOL VCamIsEnabled(void) {
             memcpy(&type, bytes + 4, 4);
             [buffer replaceBytesInRange:NSMakeRange(0, 8) withBytes:NULL length:0];
             [[VCLiveEngine sharedInstance] setMediaType:(int)type];
+            if (type != 0) [[VCRTMPServer sharedInstance] stopServer];
         }
         else if (code == 1022) {
             // Media file path: code(4) + pathLen(4) + path(UTF-8)
@@ -135,6 +140,7 @@ BOOL VCamIsEnabled(void) {
             BOOL on = (live == 1);
             [[VCLiveEngine sharedInstance] setLiveUserIntent:on];
             [[VCLiveEngine sharedInstance] setLive:on];
+            if (!on) [[VCRTMPServer sharedInstance] pauseServerLoop];
         }
         else if (code == 1025) {
             // Media fit: 0=Letterbox, 1=Trim
