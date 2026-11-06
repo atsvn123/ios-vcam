@@ -515,13 +515,14 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 - (void)setMediaType:(int)type {
     if (type < 0 || type > 2) return;
     [_lock lock];
+    BOOL sameType = (_mediaType == type);
     _mediaType = type;
-    _mediaImageGeneration++;
+    if (!sameType) _mediaImageGeneration++;
     _mediaPaused = NO;
     NSString *path = [_mediaPath copy];
     NSUInteger generation = _mediaImageGeneration;
     if (type != 2) _videoDetectedRotation = -1;
-    [self vcam_clearLiveFrame];
+    if (!sameType) [self vcam_clearLiveFrame];
     [_lock unlock];
     [self stopVideoReader];
     if (type == 1 && path.length > 0) {
