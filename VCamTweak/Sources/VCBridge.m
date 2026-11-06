@@ -110,6 +110,7 @@ BOOL VCamIsEnabled(void) {
             int32_t type;
             memcpy(&type, bytes + 4, 4);
             [buffer replaceBytesInRange:NSMakeRange(0, 8) withBytes:NULL length:0];
+            NSLog(@"[VCam] IPC source type=%d", (int)type);
             [[VCLiveEngine sharedInstance] setMediaType:(int)type];
             if (type != 0) [[VCRTMPServer sharedInstance] stopServer];
         }
@@ -128,6 +129,7 @@ BOOL VCamIsEnabled(void) {
                                                     encoding:NSUTF8StringEncoding];
             [buffer replaceBytesInRange:NSMakeRange(0, totalLen) withBytes:NULL length:0];
             if (path) {
+                NSLog(@"[VCam] IPC media path=%@", path);
                 [[VCLiveEngine sharedInstance] setMediaPath:path];
             }
         }
@@ -138,6 +140,7 @@ BOOL VCamIsEnabled(void) {
             memcpy(&live, bytes + 4, 4);
             [buffer replaceBytesInRange:NSMakeRange(0, 8) withBytes:NULL length:0];
             BOOL on = (live == 1);
+            NSLog(@"[VCam] IPC media live=%d", on);
             [[VCLiveEngine sharedInstance] setLiveUserIntent:on];
             [[VCLiveEngine sharedInstance] setLive:on];
             if (!on) [[VCRTMPServer sharedInstance] pauseServerLoop];
