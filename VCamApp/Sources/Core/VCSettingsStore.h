@@ -25,7 +25,7 @@ extern NSNotificationName const VCSettingsDidChangeNotification;
 + (instancetype)shared;
 
 @property (nonatomic) VCSourceType sourceType;
-@property (nonatomic) NSInteger fps;              // 0=auto, 10, 15, 30
+@property (nonatomic) NSInteger fps;              // 0=auto, 10, 15, 30, 60
 @property (nonatomic) VCFrameMode frameMode;
 @property (nonatomic, copy) NSString *rtmpURL;
 @property (nonatomic, copy, nullable) NSString *mediaName;

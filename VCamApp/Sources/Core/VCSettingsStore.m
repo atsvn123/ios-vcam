@@ -24,7 +24,7 @@ static NSString *const kVideoResolution = @"vc.videoResolution";
     return s;
 }
 
-+ (NSArray<NSNumber *> *)supportedFPS { return @[ @0, @10, @15, @30 ]; }
++ (NSArray<NSNumber *> *)supportedFPS { return @[ @0, @10, @15, @30, @60 ]; }
 + (NSString *)defaultRTMPURL { return @"rtmp://127.0.0.1:1935/live"; }
 
 - (instancetype)init {
