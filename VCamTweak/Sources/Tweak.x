@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import <substrate.h>
 #import <pthread.h>
+#import <unistd.h>
 #import "VCBridge.h"
 #import "VCLiveEngine.h"
 #import "VCMediaServerHooks.h"
