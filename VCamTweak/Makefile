@@ -20,6 +20,6 @@ vcamera_LDFLAGS = \
 	-framework CydiaSubstrate \
 	-Wl,-x
 
-vcamera_INSTALL_PATH = /var/jb/Library/MobileSubstrate/DynamicLibraries
+vcamera_INSTALL_PATH = /Library/MobileSubstrate/DynamicLibraries
 
 include $(THEOS_MAKE_PATH)/tweak.mk
