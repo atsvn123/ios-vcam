@@ -17,4 +17,11 @@
 
 extern volatile uint8_t g_done;
 extern double g_lastResolutionUpdate;
-extern BOOL VCamIsEnabled(void);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+BOOL VCamIsEnabled(void);
+#ifdef __cplusplus
+}
+#endif
