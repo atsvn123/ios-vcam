@@ -2,15 +2,13 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = vcamera
 
-vcamera_FILES = $(wildcard Sources/*.m Sources/*.mm Sources/*.x)
-vcamera_FILES += \
-	Sources/RTMP/DataLayer.cpp \
-	Sources/RTMP/TCPServer.cpp \
-	Sources/RTMP/librtmp/AMF.cpp \
-	Sources/RTMP/librtmp/RTMPEndpoint.cpp \
-	Sources/RTMP/librtmp/RTMPServerSession.cpp
-
-vcamera_CXXFLAGS = -std=c++17
+vcamera_FILES = \
+	Sources/Tweak.x \
+	Sources/VCBridge.m \
+	Sources/VCH264Decoder.m \
+	Sources/VCLiveEngine.m \
+	Sources/VCMediaServerHooks.m \
+	Sources/VCServerSocket.m
 
 vcamera_CFLAGS = \
 	-fobjc-arc \
@@ -27,7 +25,6 @@ vcamera_FRAMEWORKS = \
 vcamera_LDFLAGS = \
 	-framework CydiaSubstrate \
 	-Wl,-x
-vcamera_LIBRARIES = c++
 
 vcamera_INSTALL_PATH = /Library/MobileSubstrate/DynamicLibraries
 

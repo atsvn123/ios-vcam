@@ -150,8 +150,8 @@ static int hook_sourceNodeWillEmitVideoSampleBuffer(id self, SEL _cmd,
             self, _cmd, sbuf, drivesCameraControls, deliversStills);
     }
     @autoreleasepool {
-        VCLiveEngine *manager = [VCLiveEngine sharedInstance];
-        BOOL live = [manager getLive];
+        VCLiveEngine *manager = [VCLiveEngine existingInstance];
+        BOOL live = manager && [manager getLive];
         int position = live ? vcam_position_from_object(self) : 0;
         if (live && (position == 1 || position == 2)) {
             vcam_set_position_attachment(sbuf, position);
@@ -167,17 +167,13 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
         return;
     }
     @autoreleasepool {
-        static BOOL loggedOutput = NO;
-        if (!loggedOutput) {
-            loggedOutput = YES;
-            id firstNode = [self respondsToSelector:@selector(node)] ? [self node] : nil;
-            NSLog(@"[VCam] BWNodeOutput reached; nodeClass=%@",
-                  firstNode ? NSStringFromClass([firstNode class]) : @"<unavailable>");
-        }
-        // BWNodeOutput is the frame boundary used by camera graph. Do not
-        // require private node subclasses here: on some iOS builds node is
-        // unavailable or graph is wrapped, which silently bypasses injection.
-        if (!sbuf) {
+        id node = [self respondsToSelector:@selector(node)] ? [self node] : nil;
+        Class sourceClass = objc_getClass("BWMultiStreamCameraSourceNode");
+        Class legacySourceClass = objc_getClass("BWCameraSourceNode");
+        BOOL sourceOutput = (sourceClass && [node isKindOfClass:sourceClass]) ||
+                            (legacySourceClass && [node isKindOfClass:legacySourceClass]);
+
+        if (!sbuf || !sourceOutput) {
             ((void (*)(id, SEL, CMSampleBufferRef))orig_emitSampleBuffer)(self, _cmd, sbuf);
             return;
         }
@@ -187,14 +183,8 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
         if (imageBuffer) {
             size_t width  = CVPixelBufferGetWidth(imageBuffer);
             size_t height = CVPixelBufferGetHeight(imageBuffer);
-            VCLiveEngine *state = [VCLiveEngine sharedInstance];
-            BOOL isLive = [state getLive];
-
-            static BOOL loggedLiveFrame = NO;
-            if (!loggedLiveFrame && isLive) {
-                loggedLiveFrame = YES;
-                NSLog(@"[VCam] camera output reached while LIVE; buffer=%zux%zu", width, height);
-            }
+            VCLiveEngine *state = [VCLiveEngine existingInstance];
+            BOOL isLive = state && [state getLive];
             if (isLive) {
                 int cameraPosition = vcam_position_from_sample_buffer(sbuf);
                 if (cameraPosition == 0) cameraPosition = vcam_camera_position_for_output(self);
@@ -232,10 +222,6 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
     }
 }
 
-BOOL mediaServerHooksInstalled(void) {
-    return g_emitHookInstalled && g_sourceHookInstalled;
-}
-
 void installMediaServerHooks(void) {
     Class cls;
 
@@ -244,7 +230,6 @@ void installMediaServerHooks(void) {
         MSHookMessageEx(cls, @selector(emitSampleBuffer:),
                         (IMP)hook_emitSampleBuffer, (IMP *)&orig_emitSampleBuffer);
         g_emitHookInstalled = (orig_emitSampleBuffer != NULL);
-        if (g_emitHookInstalled) NSLog(@"[VCam] BWNodeOutput emitSampleBuffer hook installed");
     }
 
     cls = objc_getClass("BWFigVideoCaptureStream");
@@ -255,6 +240,5 @@ void installMediaServerHooks(void) {
                         (IMP)hook_sourceNodeWillEmitVideoSampleBuffer,
                         (IMP *)&orig_sourceNodeEmitVideoSampleBuffer);
         g_sourceHookInstalled = (orig_sourceNodeEmitVideoSampleBuffer != NULL);
-        if (g_sourceHookInstalled) NSLog(@"[VCam] BWFigVideoCaptureStream source hook installed");
     }
 }

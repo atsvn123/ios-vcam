@@ -4,7 +4,6 @@
 #import <Foundation/Foundation.h>
 #import <substrate.h>
 #import <pthread.h>
-#import <unistd.h>
 #import "VCBridge.h"
 #import "VCLiveEngine.h"
 #import "VCMediaServerHooks.h"
@@ -15,18 +14,6 @@ static void *listenThreadEntry(void *arg) {
     @autoreleasepool {
         VCBridge *bridge = [VCBridge sharedInstance];
         [bridge listen];
-    }
-    return NULL;
-}
-
-static void *hookRetryThreadEntry(void *arg) {
-    @autoreleasepool {
-        // mediaserverd can load BW classes after tweak constructors run. Retry
-        // until both hooks install; one-second idle checks have negligible cost.
-        while (VCamIsEnabled() && !mediaServerHooksInstalled()) {
-            installMediaServerHooks();
-            usleep(1000000);
-        }
     }
     return NULL;
 }
@@ -48,13 +35,7 @@ static void vcamEntry(void) {
         if (!isMediaHost) return;
 
         atexit(vcamCleanup);
-        // Construct engine before any camera frame can reach the hook. The
-        // hook uses existingInstance to avoid allocation on the media thread.
-        [VCLiveEngine sharedInstance];
         installMediaServerHooks();
-        pthread_t hookRetryThread;
-        pthread_create(&hookRetryThread, NULL, hookRetryThreadEntry, NULL);
-        pthread_detach(hookRetryThread);
         pthread_create(&g_listenThread, NULL, listenThreadEntry, NULL);
     }
 }
