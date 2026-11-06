@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     name: Build .deb (rootless / RootHide, arm64 + arm64e)
-    runs-on: macos-15
+    runs-on: macos-latest
     env:
       HOMEBREW_NO_AUTO_UPDATE: 1
       HOMEBREW_NO_INSTALL_CLEANUP: 1
@@ -30,7 +30,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: /Users/runner/theos
-          key: theos-macos15-${{ hashFiles('.github/workflows/build.yml') }}
+          key: theos-macos-latest-${{ hashFiles('.github/workflows/build.yml') }}
 
       - name: Install Theos
         if: steps.cache-theos.outputs.cache-hit != 'true'
