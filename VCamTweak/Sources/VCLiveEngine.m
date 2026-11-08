@@ -308,7 +308,12 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     _rotationDirty = NO;
 
     if (rot == 0 || rot == -1) {
-        if (_pixelYUVBuffer90) {
+        if (_mediaType == 2) {
+            _pixelYUVBuffer90 = [self vcam_updateRotatedBuffer:_pixelYUVBuffer90
+                                                         source:src
+                                                        session:_imageRotationSession
+                                                       swapDims:NO];
+        } else if (_pixelYUVBuffer90) {
             CVPixelBufferRelease(_pixelYUVBuffer90);
             _pixelYUVBuffer90 = NULL;
         }
