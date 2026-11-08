@@ -5,6 +5,8 @@ include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME = VCam
 
+TARGET = 16.0
+
 VCam_FILES = \
 	$(wildcard Sources/*.m) \
 	$(wildcard Sources/Core/*.m) \

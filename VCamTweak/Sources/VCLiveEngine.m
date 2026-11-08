@@ -358,24 +358,6 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     [_lock unlock];
 }
 
-- (int)effectiveMediaRotationForType:(int)type {
-    int rot = _mediaRotation;
-    if (type == 1 && rot == -1) {
-        return 0;
-    }
-    if (type == 2) {
-        if (rot == -1) {
-            int detected = _videoDetectedRotation;
-            if (detected == 90 || detected == 270) return detected;
-            if (detected == 180) return 180;
-            return 0;
-        }
-        if (rot == 90 || rot == 180 || rot == 270) return rot;
-        return 0;
-    }
-    return rot;
-}
-
 - (void)setYUVSampleBuffer:(CMSampleBufferRef)sbuf {
     if (!sbuf) return;
     [_lock lock];
