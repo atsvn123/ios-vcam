@@ -161,6 +161,87 @@ BOOL VCamIsEnabled(void) {
             if (target < 0 || target > 2) target = 0;
             [[VCLiveEngine sharedInstance] setCameraTarget:(int)target];
         }
+        else if (code == 1031) {
+            // Begin media file transfer: type(4) + totalLength(4) + extLen(4) + ext
+            if (buffer.length < 16) break;
+            int32_t type, totalLen, extLen;
+            memcpy(&type, bytes + 4, 4);
+            memcpy(&totalLen, bytes + 8, 4);
+            memcpy(&extLen, bytes + 12, 4);
+            if (extLen < 0 || extLen > 16) {
+                [self remove:socketHandle]; return;
+            }
+            NSUInteger totalLenFrame = (NSUInteger)(16 + extLen);
+            if (buffer.length < totalLenFrame) break;
+            NSString *ext = [[NSString alloc] initWithBytes:(bytes + 16)
+                                                      length:(NSUInteger)extLen
+                                                    encoding:NSUTF8StringEncoding];
+            [buffer replaceBytesInRange:NSMakeRange(0, totalLenFrame) withBytes:NULL length:0];
+            if (totalLen > 0 && totalLen < 512 * 1024 * 1024) {
+                [[VCLiveEngine sharedInstance] beginMediaFileTransfer:(int)type
+                                                          totalLength:(int)totalLen
+                                                       fileExtension:ext];
+            }
+        }
+        else if (code == 1032) {
+            // Media file chunk: offset(4) + length(4) + bytes
+            if (buffer.length < 12) break;
+            int32_t offset, chunkLen;
+            memcpy(&offset, bytes + 4, 4);
+            memcpy(&chunkLen, bytes + 8, 4);
+            if (chunkLen < 0 || chunkLen > 1024 * 1024) {
+                [self remove:socketHandle]; return;
+            }
+            NSUInteger totalLen = (NSUInteger)(12 + chunkLen);
+            if (buffer.length < totalLen) break;
+            [[VCLiveEngine sharedInstance] appendMediaFileData:(bytes + 12)
+                                                       length:(int)chunkLen
+                                                       offset:(int)offset];
+            [buffer replaceBytesInRange:NSMakeRange(0, totalLen) withBytes:NULL length:0];
+        }
+        else if (code == 1033) {
+            // End media file transfer
+            [buffer replaceBytesInRange:NSMakeRange(0, 4) withBytes:NULL length:0];
+            [[VCLiveEngine sharedInstance] finishMediaFileTransfer];
+        }
+        else if (code == 1035) {
+            // Media rotation: -1=auto, 0/90/180/270
+            if (buffer.length < 8) break;
+            int32_t rot;
+            memcpy(&rot, bytes + 4, 4);
+            [buffer replaceBytesInRange:NSMakeRange(0, 8) withBytes:NULL length:0];
+            [[VCLiveEngine sharedInstance] setMediaRotation:(int)rot];
+        }
+        else if (code == 1036) {
+            // Media mirror: 0=off, 1=on
+            if (buffer.length < 8) break;
+            int32_t mirror;
+            memcpy(&mirror, bytes + 4, 4);
+            [buffer replaceBytesInRange:NSMakeRange(0, 8) withBytes:NULL length:0];
+            [[VCLiveEngine sharedInstance] setMediaMirror:(mirror == 1)];
+        }
+        else if (code == 1037) {
+            // Per-camera rotation offset: position(4) + degrees(4)
+            if (buffer.length < 12) break;
+            int32_t position, degrees;
+            memcpy(&position, bytes + 4, 4);
+            memcpy(&degrees, bytes + 8, 4);
+            [buffer replaceBytesInRange:NSMakeRange(0, 12) withBytes:NULL length:0];
+            [[VCLiveEngine sharedInstance] setCameraRotationOffset:(int)degrees
+                                                        forPosition:(int)position];
+        }
+        else if (code == 1038) {
+            // Per-camera mirror override: position(4) + enabled(4) + hasOverride(4)
+            if (buffer.length < 16) break;
+            int32_t position, enabled, hasOverride;
+            memcpy(&position, bytes + 4, 4);
+            memcpy(&enabled, bytes + 8, 4);
+            memcpy(&hasOverride, bytes + 12, 4);
+            [buffer replaceBytesInRange:NSMakeRange(0, 16) withBytes:NULL length:0];
+            [[VCLiveEngine sharedInstance] setCameraMirror:(enabled == 1)
+                                                hasOverride:(hasOverride == 1)
+                                                forPosition:(int)position];
+        }
         else {
             [self remove:socketHandle];
             return;

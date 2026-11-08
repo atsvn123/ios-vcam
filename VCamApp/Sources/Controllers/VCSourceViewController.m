@@ -414,7 +414,8 @@ static NSInteger VCIndexForFPS(NSInteger fps) {
         return;
     }
 
-    NSString *tmpDir = @"/tmp/vcam";
+    NSString *tmpDir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    tmpDir = [tmpDir stringByAppendingPathComponent:@"vcam"];
     NSFileManager *fm = [NSFileManager defaultManager];
     NSDictionary *dirAttrs = @{
         NSFileProtectionKey: NSFileProtectionNone,

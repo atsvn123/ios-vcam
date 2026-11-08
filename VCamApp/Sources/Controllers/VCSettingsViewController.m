@@ -6,6 +6,7 @@ static NSString *const kControlMenu  = @"vc.controlMenu";    // nút nổi trong
 
 typedef NS_ENUM(NSInteger, VCSection) {
     VCSectionCamera = 0,
+    VCSectionOrientation,
     VCSectionGeneral,
     VCSectionReset,
     VCSectionAbout,
@@ -80,6 +81,7 @@ typedef NS_ENUM(NSInteger, VCSection) {
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)section {
     switch (section) {
         case VCSectionCamera:  return 1;
+        case VCSectionOrientation: return 6;
         case VCSectionGeneral: return 1;
         case VCSectionReset:   return 1;
         case VCSectionAbout:   return 2;
@@ -90,6 +92,7 @@ typedef NS_ENUM(NSInteger, VCSection) {
 - (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)section {
     switch (section) {
         case VCSectionCamera:  return @"Camera bị fake";
+        case VCSectionOrientation: return @"Xoay & đảo hình";
         case VCSectionGeneral: return @"Chung";
         case VCSectionAbout:   return @"Thông tin";
     }
@@ -99,6 +102,8 @@ typedef NS_ENUM(NSInteger, VCSection) {
 - (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)section {
     switch (section) {
         case VCSectionCamera:  return @"Chọn camera sẽ bị thay bằng nguồn VCam.";
+        case VCSectionOrientation:
+            return @"Mặc định VCam tự bù theo hướng của máy. Nếu hình bị lệch, dùng phần bù để chỉnh thủ công cho từng camera.";
         case VCSectionGeneral: return @"Hiện nút điều khiển nổi trong các app dùng camera.";
         case VCSectionReset:   return @"Đưa nguồn, FPS, khung hình, RTMP URL về mặc định và tắt LIVE.";
     }
@@ -126,6 +131,78 @@ typedef NS_ENUM(NSInteger, VCSection) {
                 [seg.leadingAnchor constraintEqualToAnchor:c.contentView.layoutMarginsGuide.leadingAnchor],
                 [seg.trailingAnchor constraintEqualToAnchor:c.contentView.layoutMarginsGuide.trailingAnchor],
                 [seg.topAnchor constraintEqualToAnchor:c.contentView.topAnchor constant:10],
+                [seg.bottomAnchor constraintEqualToAnchor:c.contentView.bottomAnchor constant:-10],
+                [seg.heightAnchor constraintEqualToConstant:34],
+            ]];
+            break;
+        }
+        case VCSectionOrientation: {
+            VCSettingsStore *s = [VCSettingsStore shared];
+            if (ip.row == 1) {
+                c.textLabel.text = @"Đảo hình nguồn";
+                UISwitch *sw = [[UISwitch alloc] init];
+                sw.onTintColor = [VCTheme accentPink];
+                sw.on = s.mediaMirror;
+                [sw addTarget:self action:@selector(mediaMirrorToggled:)
+              forControlEvents:UIControlEventValueChanged];
+                c.accessoryView = sw;
+                break;
+            }
+
+            NSString *title;
+            UISegmentedControl *seg;
+            if (ip.row == 0) {
+                title = @"Xoay nguồn";
+                seg = [[UISegmentedControl alloc]
+                    initWithItems:@[ @"Tự động", @"0°", @"90°", @"180°", @"270°" ]];
+                NSInteger v = s.mediaRotation;
+                NSInteger idx = 0;
+                if (v == 0) idx = 1; else if (v == 90) idx = 2;
+                else if (v == 180) idx = 3; else if (v == 270) idx = 4;
+                seg.selectedSegmentIndex = idx;
+                [seg addTarget:self action:@selector(mediaRotationChanged:)
+              forControlEvents:UIControlEventValueChanged];
+            } else if (ip.row == 2 || ip.row == 3) {
+                BOOL rear = (ip.row == 2);
+                title = rear ? @"Bù xoay cam sau" : @"Bù xoay cam trước";
+                seg = [[UISegmentedControl alloc]
+                    initWithItems:@[ @"0°", @"90°", @"180°", @"270°" ]];
+                NSInteger off = rear ? s.rearRotationOffset : s.frontRotationOffset;
+                NSInteger idx = 0;
+                if (off == 90) idx = 1; else if (off == 180) idx = 2; else if (off == 270) idx = 3;
+                seg.selectedSegmentIndex = idx;
+                seg.tag = rear ? 0 : 1;
+                [seg addTarget:self action:@selector(rotationOffsetChanged:)
+              forControlEvents:UIControlEventValueChanged];
+            } else {
+                BOOL rear = (ip.row == 4);
+                title = rear ? @"Đảo hình cam sau" : @"Đảo hình cam trước";
+                seg = [[UISegmentedControl alloc]
+                    initWithItems:@[ @"Tự động", @"Tắt", @"Bật" ]];
+                NSInteger v = rear ? s.rearMirror : s.frontMirror;
+                seg.selectedSegmentIndex = (v < 0) ? 0 : (v == 0 ? 1 : 2);
+                seg.tag = rear ? 0 : 1;
+                [seg addTarget:self action:@selector(cameraMirrorChanged:)
+              forControlEvents:UIControlEventValueChanged];
+            }
+            [VCTheme styleSegmentedControl:seg];
+
+            UILabel *caption = [[UILabel alloc] init];
+            caption.text = title;
+            caption.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
+            caption.textColor = [VCTheme textSecondary];
+            caption.translatesAutoresizingMaskIntoConstraints = NO;
+
+            seg.translatesAutoresizingMaskIntoConstraints = NO;
+            [c.contentView addSubview:caption];
+            [c.contentView addSubview:seg];
+            [NSLayoutConstraint activateConstraints:@[
+                [caption.topAnchor constraintEqualToAnchor:c.contentView.topAnchor constant:10],
+                [caption.leadingAnchor constraintEqualToAnchor:c.contentView.layoutMarginsGuide.leadingAnchor],
+                [caption.trailingAnchor constraintEqualToAnchor:c.contentView.layoutMarginsGuide.trailingAnchor],
+                [seg.topAnchor constraintEqualToAnchor:caption.bottomAnchor constant:6],
+                [seg.leadingAnchor constraintEqualToAnchor:c.contentView.layoutMarginsGuide.leadingAnchor],
+                [seg.trailingAnchor constraintEqualToAnchor:c.contentView.layoutMarginsGuide.trailingAnchor],
                 [seg.bottomAnchor constraintEqualToAnchor:c.contentView.bottomAnchor constant:-10],
                 [seg.heightAnchor constraintEqualToConstant:34],
             ]];
@@ -186,6 +263,34 @@ typedef NS_ENUM(NSInteger, VCSection) {
 
 - (void)cameraTargetChanged:(UISegmentedControl *)seg {
     [VCSettingsStore shared].cameraTarget = seg.selectedSegmentIndex;
+}
+
+- (void)mediaRotationChanged:(UISegmentedControl *)seg {
+    static const NSInteger values[] = { -1, 0, 90, 180, 270 };
+    NSInteger idx = seg.selectedSegmentIndex;
+    if (idx < 0 || idx > 4) return;
+    [VCSettingsStore shared].mediaRotation = values[idx];
+}
+
+- (void)mediaMirrorToggled:(UISwitch *)sw {
+    [VCSettingsStore shared].mediaMirror = sw.on;
+}
+
+- (void)rotationOffsetChanged:(UISegmentedControl *)seg {
+    static const NSInteger values[] = { 0, 90, 180, 270 };
+    NSInteger idx = seg.selectedSegmentIndex;
+    if (idx < 0 || idx > 3) return;
+    VCSettingsStore *s = [VCSettingsStore shared];
+    if (seg.tag == 0) s.rearRotationOffset = values[idx];
+    else s.frontRotationOffset = values[idx];
+}
+
+- (void)cameraMirrorChanged:(UISegmentedControl *)seg {
+    NSInteger idx = seg.selectedSegmentIndex;
+    NSInteger value = (idx == 1) ? 0 : (idx == 2) ? 1 : -1;
+    VCSettingsStore *s = [VCSettingsStore shared];
+    if (seg.tag == 0) s.rearMirror = value;
+    else s.frontMirror = value;
 }
 
 - (void)reloadTableView {

@@ -33,6 +33,12 @@ extern NSNotificationName const VCSettingsDidChangeNotification;
 @property (nonatomic, getter=isLive) BOOL live;
 @property (nonatomic) NSInteger cameraTarget;    // 0=both, 1=rear, 2=front
 @property (nonatomic) NSInteger videoResolution; // 0=auto, 720, 1080
+@property (nonatomic) NSInteger mediaRotation;   // -1=auto, 0/90/180/270
+@property (nonatomic) BOOL mediaMirror;          // mirror the injected content
+@property (nonatomic) NSInteger rearRotationOffset;  // manual correction, degrees
+@property (nonatomic) NSInteger frontRotationOffset; // manual correction, degrees
+@property (nonatomic) NSInteger rearMirror;   // -1=auto, 0=off, 1=on
+@property (nonatomic) NSInteger frontMirror;  // -1=auto, 0=off, 1=on
 
 + (NSArray<NSNumber *> *)supportedFPS;
 + (NSString *)defaultRTMPURL;

@@ -196,4 +196,94 @@ static const NSTimeInterval kMaxRetry = 8.0;
     [self sendData:d];
 }
 
+// The tweak lives in mediaserverd, which cannot read this app's sandbox, so
+// the media file is streamed over the socket instead of being referenced by
+// path.
+- (void)sendFileAtPath:(NSString *)path type:(int32_t)type {
+    if (!path.length) return;
+
+    NSFileHandle *handle = [NSFileHandle fileHandleForReadingAtPath:path];
+    if (!handle) return;
+
+    unsigned long long total = 0;
+    @try {
+        total = [handle seekToEndOfFile];
+        [handle seekToFileOffset:0];
+    } @catch (__unused NSException *e) {
+        [handle closeFile];
+        return;
+    }
+    if (total == 0 || total > 512ULL * 1024ULL * 1024ULL) {
+        [handle closeFile];
+        return;
+    }
+
+    int32_t beginCode = 1031;
+    int32_t totalLength = (int32_t)total;
+    NSString *ext = path.pathExtension.length ? path.pathExtension
+                                               : (type == 2 ? @"mov" : @"jpg");
+    const char *extBytes = ext.UTF8String ?: "";
+    int32_t extLength = (int32_t)strlen(extBytes);
+    NSMutableData *begin = [NSMutableData dataWithCapacity:(NSUInteger)(16 + extLength)];
+    [begin appendBytes:&beginCode length:4];
+    [begin appendBytes:&type length:4];
+    [begin appendBytes:&totalLength length:4];
+    [begin appendBytes:&extLength length:4];
+    if (extLength > 0) [begin appendBytes:extBytes length:(NSUInteger)extLength];
+    [self sendData:begin];
+
+    const NSUInteger chunkSize = 256 * 1024;
+    unsigned long long offset = 0;
+    while (offset < total) {
+        @autoreleasepool {
+            NSData *chunk = nil;
+            @try {
+                chunk = [handle readDataOfLength:chunkSize];
+            } @catch (__unused NSException *e) {
+                break;
+            }
+            if (!chunk.length) break;
+
+            int32_t chunkCode = 1032;
+            int32_t chunkOffset = (int32_t)offset;
+            int32_t chunkLength = (int32_t)chunk.length;
+            NSMutableData *frame = [NSMutableData dataWithCapacity:(NSUInteger)(12 + chunk.length)];
+            [frame appendBytes:&chunkCode length:4];
+            [frame appendBytes:&chunkOffset length:4];
+            [frame appendBytes:&chunkLength length:4];
+            [frame appendData:chunk];
+            [self sendData:frame];
+
+            offset += chunk.length;
+        }
+    }
+    [handle closeFile];
+
+    int32_t endCode = 1033;
+    NSMutableData *end = [NSMutableData dataWithLength:4];
+    [end appendBytes:&endCode length:4];
+    [self sendData:end];
+}
+
+- (void)sendCameraRotationOffset:(int32_t)degrees position:(int32_t)position {
+    int32_t code = 1037;
+    NSMutableData *d = [NSMutableData dataWithCapacity:12];
+    [d appendBytes:&code length:4];
+    [d appendBytes:&position length:4];
+    [d appendBytes:&degrees length:4];
+    [self sendData:d];
+}
+
+- (void)sendCameraMirror:(BOOL)mirror hasOverride:(BOOL)hasOverride position:(int32_t)position {
+    int32_t code = 1038;
+    int32_t enabled = mirror ? 1 : 0;
+    int32_t override = hasOverride ? 1 : 0;
+    NSMutableData *d = [NSMutableData dataWithCapacity:16];
+    [d appendBytes:&code length:4];
+    [d appendBytes:&position length:4];
+    [d appendBytes:&enabled length:4];
+    [d appendBytes:&override length:4];
+    [self sendData:d];
+}
+
 @end

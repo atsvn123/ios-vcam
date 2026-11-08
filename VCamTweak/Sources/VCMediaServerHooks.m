@@ -141,6 +141,66 @@ static int vcam_camera_position_for_output(id output) {
     return position;
 }
 
+// The host camera graph rotates the sensor-space buffer itself and mirrors
+// the front camera. Discover that per frame so the injected media can be
+// pre-rotated / pre-mirrored to end up upright and consistent.
+static int vcam_orientation_to_degrees(int orientation) {
+    // AVCaptureVideoOrientation: 1=portrait, 2=portraitUpsideDown,
+    // 3=landscapeRight, 4=landscapeLeft.
+    switch (orientation) {
+        case 1: return 90;
+        case 2: return 180;
+        case 3: return 270;
+        case 4: return 0;
+        default: return -1;
+    }
+}
+
+static void vcam_report_host_orientation(id owner, id node, int cameraPosition) {
+    if (!owner) return;
+    int orientation = -1;
+    BOOL mirrored = NO;
+    BOOL orientationKnown = NO;
+
+    id candidates[] = { owner, node };
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+        id object = candidates[i];
+        if (!object) continue;
+        if (!orientationKnown && [object respondsToSelector:@selector(videoOrientation)]) {
+            orientation = ((int (*)(id, SEL))objc_msgSend)(object, @selector(videoOrientation));
+            orientationKnown = YES;
+        }
+        if ([object respondsToSelector:@selector(videoMirrored)]) {
+            mirrored = ((BOOL (*)(id, SEL))objc_msgSend)(object, @selector(videoMirrored));
+            break;
+        }
+    }
+
+    // The orientation usually lives on the capture connection, not the node.
+    if (!orientationKnown && node && [node respondsToSelector:@selector(connection)]) {
+        id connection = nil;
+        @try { connection = [node connection]; } @catch (__unused NSException *e) {}
+        if (connection) {
+            if ([connection respondsToSelector:@selector(videoOrientation)]) {
+                orientation = ((int (*)(id, SEL))objc_msgSend)(connection, @selector(videoOrientation));
+                orientationKnown = YES;
+            }
+            if (!mirrored && [connection respondsToSelector:@selector(videoMirrored)]) {
+                mirrored = ((BOOL (*)(id, SEL))objc_msgSend)(connection, @selector(videoMirrored));
+            }
+        }
+    }
+    if (!orientationKnown) return;
+
+    int degrees = vcam_orientation_to_degrees(orientation);
+    if (degrees < 0) return;
+
+    VCLiveEngine *state = [VCLiveEngine existingInstance];
+    if (!state) return;
+    [state setCurrentCameraPosition:cameraPosition];
+    [state setHostOrientation:degrees mirrored:mirrored];
+}
+
 static int hook_sourceNodeWillEmitVideoSampleBuffer(id self, SEL _cmd,
                                                      CMSampleBufferRef sbuf,
                                                      BOOL drivesCameraControls,
@@ -192,6 +252,7 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
                 if (cameraPosition == 1 || cameraPosition == 2) {
                     vcam_set_position_attachment(sbuf, cameraPosition);
                 }
+                vcam_report_host_orientation(self, node, cameraPosition);
 
                 BOOL targetMatches = [state shouldInjectForCameraPosition:cameraPosition];
                 if (state.cameraTarget != 0 && cameraPosition == 0) {
@@ -211,7 +272,7 @@ static void hook_emitSampleBuffer(id self, SEL _cmd, CMSampleBufferRef sbuf) {
                     // On success (non-nil): suppressOriginal stays NO — orig IS called with
                     // the modified pixels so the downstream graph receives our content.
                     // On failure (nil): try blackout; suppress orig only if blackout also fails.
-                    if (![state modifyImageBuffer:sbuf]) {
+                    if (![state modifyImageBuffer:sbuf cameraPosition:cameraPosition]) {
                         suppressOriginal = ![state blackoutImageBuffer:sbuf];
                     }
                 }

@@ -65,6 +65,110 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     return filled;
 }
 
+static BOOL vcam_mirror_supported_format(OSType format) {
+    return format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
+           format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ||
+           format == kCVPixelFormatType_32BGRA ||
+           format == kCVPixelFormatType_32ARGB ||
+           format == kCVPixelFormatType_32RGBA ||
+           format == kCVPixelFormatType_32ABGR;
+}
+
+// Mirror the source pixels horizontally. Used to reproduce the front camera's
+// mirroring so both cameras present the same content orientation.
+static BOOL vcam_update_mirrored_buffer(CVPixelBufferRef *bufferPointer,
+                                        CVPixelBufferRef source) {
+    if (!bufferPointer || !source) return NO;
+    CVPixelBufferRef buffer = *bufferPointer;
+
+    OSType format = CVPixelBufferGetPixelFormatType(source);
+    if (!vcam_mirror_supported_format(format)) return NO;
+
+    size_t width = CVPixelBufferGetWidth(source);
+    size_t height = CVPixelBufferGetHeight(source);
+    BOOL reusable = buffer &&
+        CVPixelBufferGetPixelFormatType(buffer) == format &&
+        CVPixelBufferGetWidth(buffer) == width &&
+        CVPixelBufferGetHeight(buffer) == height;
+    if (!reusable) {
+        NSDictionary *attrs = @{
+            (NSString *)kCVPixelBufferPixelFormatTypeKey: @(format),
+            (NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{},
+        };
+        CVPixelBufferRef replacement = NULL;
+        if (CVPixelBufferCreate(kCFAllocatorDefault, width, height, format,
+                                (__bridge CFDictionaryRef)attrs, &replacement) != kCVReturnSuccess)
+            return NO;
+        if (buffer) CVPixelBufferRelease(buffer);
+        buffer = replacement;
+        *bufferPointer = buffer;
+    }
+
+    if (CVPixelBufferLockBaseAddress(source, kCVPixelBufferLock_ReadOnly) != kCVReturnSuccess) {
+        return NO;
+    }
+    if (CVPixelBufferLockBaseAddress(buffer, 0) != kCVReturnSuccess) {
+        CVPixelBufferUnlockBaseAddress(source, kCVPixelBufferLock_ReadOnly);
+        return NO;
+    }
+
+    BOOL copied = YES;
+    if (CVPixelBufferIsPlanar(source) && CVPixelBufferGetPlaneCount(source) >= 2) {
+        size_t yWidth = CVPixelBufferGetWidthOfPlane(source, 0);
+        size_t yHeight = CVPixelBufferGetHeightOfPlane(source, 0);
+        size_t syStride = CVPixelBufferGetBytesPerRowOfPlane(source, 0);
+        size_t dyStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+        const uint8_t *sy = CVPixelBufferGetBaseAddressOfPlane(source, 0);
+        uint8_t *dy = CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+        for (size_t y = 0; sy && dy && y < yHeight; y++) {
+            const uint8_t *sr = sy + y * syStride;
+            uint8_t *dr = dy + y * dyStride;
+            for (size_t x = 0; x < yWidth; x++) dr[x] = sr[yWidth - 1 - x];
+        }
+
+        size_t uvPairs = CVPixelBufferGetWidthOfPlane(source, 1);
+        size_t uvHeight = CVPixelBufferGetHeightOfPlane(source, 1);
+        size_t suvStride = CVPixelBufferGetBytesPerRowOfPlane(source, 1);
+        size_t duvStride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 1);
+        const uint8_t *suv = CVPixelBufferGetBaseAddressOfPlane(source, 1);
+        uint8_t *duv = CVPixelBufferGetBaseAddressOfPlane(buffer, 1);
+        for (size_t y = 0; suv && duv && y < uvHeight; y++) {
+            const uint8_t *sr = suv + y * suvStride;
+            uint8_t *dr = duv + y * duvStride;
+            for (size_t pair = 0; pair < uvPairs; pair++) {
+                size_t sx = (uvPairs - 1 - pair) * 2;
+                size_t dx = pair * 2;
+                if (sx + 1 >= suvStride || dx + 1 >= duvStride) {
+                    copied = NO;
+                    break;
+                }
+                dr[dx] = sr[sx];
+                dr[dx + 1] = sr[sx + 1];
+            }
+        }
+        if (!sy || !dy || !suv || !duv) copied = NO;
+    } else {
+        size_t sourceStride = CVPixelBufferGetBytesPerRow(source);
+        size_t destStride = CVPixelBufferGetBytesPerRow(buffer);
+        const uint8_t *srcBase = CVPixelBufferGetBaseAddress(source);
+        uint8_t *dstBase = CVPixelBufferGetBaseAddress(buffer);
+        if (!srcBase || !dstBase) {
+            copied = NO;
+        } else {
+            for (size_t y = 0; y < height; y++) {
+                const uint8_t *sr = srcBase + y * sourceStride;
+                uint8_t *dr = dstBase + y * destStride;
+                for (size_t x = 0; x < width; x++)
+                    memcpy(dr + x * 4, sr + (width - 1 - x) * 4, 4);
+            }
+        }
+    }
+
+    CVPixelBufferUnlockBaseAddress(buffer, 0);
+    CVPixelBufferUnlockBaseAddress(source, kCVPixelBufferLock_ReadOnly);
+    return copied;
+}
+
 @implementation VCLiveEngine {
     NSRecursiveLock *_lock;
     BOOL _userIntentLive;
@@ -93,6 +197,34 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     VTImageRotationSessionRef _imageRotationSession270; // 270
     BOOL _mediaLoop;
     BOOL _mediaPaused;
+    BOOL _mediaMirror;          // user-requested horizontal mirror
+    int _counterRotation;       // unused placeholder (kept for API symmetry)
+
+    // Host camera-graph state, per camera position (0=unknown, 1=rear, 2=front).
+    // The host rotates the sensor-space buffer itself and mirrors the front
+    // camera, so the media content must be pre-rotated/mirrored to compensate.
+    int _hostOrientation[3];
+    BOOL _hostMirrored[3];
+    int _currentCameraPosition;
+
+    // Manual per-camera overrides, applied on top of the host compensation.
+    int _cameraRotationOverride[3];
+    BOOL _cameraMirrorOverride[3];
+    BOOL _cameraMirrorOverrideSet[3];
+
+    CVPixelBufferRef _counterRotatedBuffer;
+    CVPixelBufferRef _compensatedBuffer;
+
+    // Incoming media file transfer (the tweak cannot read the app sandbox).
+    NSFileHandle *_transferHandle;
+    int _transferType;
+    int _transferTotalLength;
+    int _transferReceived;
+    NSString *_transferFileName;
+    NSString *_transferPath;
+
+    CVPixelBufferRef _mirroredPixelBuffer;
+    NSUInteger _mirroredFrameGeneration;
     int _videoReaderRetryCount;
     CGImageRef _normalizedImage;
     NSString *_normalizedImagePath;
@@ -199,6 +331,14 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
         _performanceFPS = 30;
         _lastSourceFrameUpdate = 0;
         _lastSourceFrameReceived = 0;
+        // No host compensation known yet.
+        for (int i = 0; i < 3; i++) {
+            _hostOrientation[i] = 0;
+            _hostMirrored[i] = NO;
+            _cameraRotationOverride[i] = 0;
+            _cameraMirrorOverride[i] = NO;
+            _cameraMirrorOverrideSet[i] = NO;
+        }
         _mediaQueue = dispatch_queue_create("com.vcam.media", DISPATCH_QUEUE_SERIAL);
     }
     return self;
@@ -380,6 +520,11 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
 #pragma mark - Frame injection
 
 - (CMSampleBufferRef)modifyImageBuffer:(CMSampleBufferRef)sampleBuffer {
+    return [self modifyImageBuffer:sampleBuffer cameraPosition:0];
+}
+
+- (CMSampleBufferRef)modifyImageBuffer:(CMSampleBufferRef)sampleBuffer
+                        cameraPosition:(int)cameraPosition {
   @autoreleasepool {
     if (!_bLive && !_userIntentLive) return nil;
 
@@ -430,6 +575,58 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
         BOOL blackedOut = vcam_fill_black_pixel_buffer((CVPixelBufferRef)destBuffer);
         [_lock unlock];
         return blackedOut ? sampleBuffer : nil;
+    }
+
+    // Compensate for the host camera graph: it rotates the sensor-space
+    // buffer itself (and mirrors the front camera), so the media content has
+    // to be pre-rotated by the opposite angle and pre-mirrored to match.
+    if (_mediaType == 1 || _mediaType == 2) {
+        int slot = (cameraPosition >= 1 && cameraPosition <= 2) ? cameraPosition : 0;
+        int counter = (360 - _hostOrientation[slot]) % 360;
+        int angle = (counter + _cameraRotationOverride[slot]) % 360;
+
+        CVPixelBufferRef upright = (CVPixelBufferRef)transferSrc;
+        CVPixelBufferRef oriented = upright;
+        if (angle != 0) {
+            VTImageRotationSessionRef session = NULL;
+            BOOL swapDims = NO;
+            if (angle == 90)       { session = _imageRotationSession;    swapDims = YES; }
+            else if (angle == 180) { session = _imageRotationSession180; swapDims = NO; }
+            else if (angle == 270) { session = _imageRotationSession270; swapDims = YES; }
+            if (session) {
+                _compensatedBuffer = [self vcam_updateRotatedBuffer:_compensatedBuffer
+                                                             source:upright
+                                                            session:session
+                                                           swapDims:swapDims];
+                oriented = _compensatedBuffer;
+            }
+        } else if (_compensatedBuffer) {
+            CVPixelBufferRelease(_compensatedBuffer);
+            _compensatedBuffer = NULL;
+        }
+
+        // The host graph mirrors the front camera, so the pre-mirror flag has to
+        // be the opposite of the host's to end up with the requested result.
+        BOOL wanted = _mediaMirror;
+        if (_cameraMirrorOverrideSet[slot]) {
+            wanted = _cameraMirrorOverride[slot];
+        }
+        BOOL mirror = (wanted != _hostMirrored[slot]);
+        if (mirror && oriented) {
+            CVPixelBufferRef mirrored = _mirroredPixelBuffer;
+            _mirroredPixelBuffer = NULL;
+            if (vcam_update_mirrored_buffer(&mirrored, oriented)) {
+                _mirroredPixelBuffer = mirrored;
+                oriented = mirrored;
+            } else if (mirrored) {
+                CVPixelBufferRelease(mirrored);
+            }
+        } else if (_mirroredPixelBuffer) {
+            CVPixelBufferRelease(_mirroredPixelBuffer);
+            _mirroredPixelBuffer = NULL;
+        }
+
+        if (oriented) transferSrc = oriented;
     }
 
     BOOL success = NO;
@@ -598,6 +795,188 @@ static BOOL vcam_fill_black_pixel_buffer(CVPixelBufferRef buffer) {
     _performanceFPS = fps;
     _lastSourceFrameUpdate = 0;
     [_lock unlock];
+}
+
+- (void)setMediaRotation:(int)degrees {
+    if (degrees != -1 && degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) return;
+    [_lock lock];
+    if (_mediaRotation == degrees) { [_lock unlock]; return; }
+    _mediaRotation = degrees;
+    _rotationDirty = YES;
+    [_lock unlock];
+}
+
+- (void)setMediaMirror:(BOOL)mirror {
+    [_lock lock];
+    if (_mediaMirror == mirror) { [_lock unlock]; return; }
+    _mediaMirror = mirror;
+    _rotationDirty = YES;
+    [_lock unlock];
+}
+
+// The host camera graph applies its own rotation (and mirrors the front
+// camera) to the sensor-space buffer we write into. Record that per camera
+// position so the injected media can be pre-rotated by the opposite angle.
+- (void)setHostOrientation:(int)degrees mirrored:(BOOL)mirrored {
+    while (degrees < 0) degrees += 360;
+    degrees %= 360;
+    if (degrees != 0 && degrees != 90 && degrees != 180 && degrees != 270) degrees = 0;
+    [_lock lock];
+    int slot = (_currentCameraPosition >= 1 && _currentCameraPosition <= 2)
+        ? _currentCameraPosition : 0;
+    if (_hostOrientation[slot] != degrees || _hostMirrored[slot] != mirrored) {
+        _hostOrientation[slot] = degrees;
+        _hostMirrored[slot] = mirrored;
+        _rotationDirty = YES;
+    }
+    [_lock unlock];
+}
+
+- (void)setCurrentCameraPosition:(int)position {
+    if (position < 0 || position > 2) position = 0;
+    [_lock lock];
+    if (_currentCameraPosition != position) {
+        _currentCameraPosition = position;
+        _rotationDirty = YES;
+    }
+    [_lock unlock];
+}
+
+- (void)setCameraRotationOffset:(int)degrees forPosition:(int)position {
+    if (position < 0 || position > 2) return;
+    while (degrees < 0) degrees += 360;
+    degrees %= 360;
+    [_lock lock];
+    if (_cameraRotationOverride[position] != degrees) {
+        _cameraRotationOverride[position] = degrees;
+        _rotationDirty = YES;
+    }
+    [_lock unlock];
+}
+
+- (void)setCameraMirror:(BOOL)mirror hasOverride:(BOOL)hasOverride forPosition:(int)position {
+    if (position < 0 || position > 2) return;
+    [_lock lock];
+    if (!_cameraMirrorOverrideSet[position] ||
+        _cameraMirrorOverride[position] != mirror ||
+        _cameraMirrorOverrideSet[position] != hasOverride) {
+        _cameraMirrorOverrideSet[position] = hasOverride;
+        _cameraMirrorOverride[position] = mirror;
+        _rotationDirty = YES;
+    }
+    [_lock unlock];
+}
+
+// ── Media file transfer ─────────────────────────────────────────────────────
+// The tweak is injected into mediaserverd and cannot read the app's sandbox,
+// so the app streams the file bytes over the socket instead of sending a path.
+
+- (void)beginMediaFileTransfer:(int)type totalLength:(int)totalLength {
+    [self beginMediaFileTransfer:type totalLength:totalLength fileExtension:nil];
+}
+
+- (void)beginMediaFileTransfer:(int)type totalLength:(int)totalLength
+                  fileExtension:(NSString *)fileExtension {
+    if (type != 1 && type != 2) return;
+    if (totalLength <= 0) return;
+
+    // mediaserverd runs as its own user; use a directory it can always write.
+    NSArray<NSString *> *candidates = @[
+        @"/var/mobile/Media/vcam",
+        @"/var/tmp/vcam",
+        @"/tmp/vcam",
+    ];
+    NSString *dir = nil;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *candidate in candidates) {
+        NSError *error = nil;
+        BOOL created = [fm createDirectoryAtPath:candidate
+                     withIntermediateDirectories:YES
+                                      attributes:@{ NSFilePosixPermissions: @0755 }
+                                           error:&error];
+        if (created || [fm fileExistsAtPath:candidate]) {
+            dir = candidate;
+            break;
+        }
+    }
+    if (!dir) return;
+
+    NSString *ext = fileExtension.length ? fileExtension : ((type == 2) ? @"mov" : @"jpg");
+    NSString *name = [NSString stringWithFormat:@"vcam_%@.%@", [[NSUUID UUID] UUIDString], ext];
+    NSString *path = [dir stringByAppendingPathComponent:name];
+
+    [_lock lock];
+    if (_transferHandle) {
+        [_transferHandle closeFile];
+        _transferHandle = nil;
+    }
+    if (_transferPath) {
+        [fm removeItemAtPath:_transferPath error:nil];
+    }
+    _transferHandle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!_transferHandle) {
+        [_lock unlock];
+        return;
+    }
+    _transferType = type;
+    _transferTotalLength = totalLength;
+    _transferReceived = 0;
+    _transferPath = [path copy];
+    [_lock unlock];
+}
+
+- (void)appendMediaFileData:(const void *)bytes length:(int)length offset:(int)offset {
+    if (!bytes || length <= 0) return;
+    [_lock lock];
+    NSFileHandle *handle = _transferHandle;
+    if (!handle || offset != _transferReceived) { [_lock unlock]; return; }
+    [_lock unlock];
+
+    @try {
+        [handle writeData:[NSData dataWithBytes:bytes length:(NSUInteger)length]];
+    } @catch (__unused NSException *e) {
+        return;
+    }
+
+    [_lock lock];
+    _transferReceived += length;
+    [_lock unlock];
+}
+
+- (void)finishMediaFileTransfer {
+    [_lock lock];
+    NSFileHandle *handle = _transferHandle;
+    NSString *path = _transferPath;
+    int type = _transferType;
+    _transferHandle = nil;
+    _transferPath = nil;
+    _transferReceived = 0;
+    [_lock unlock];
+
+    if (!handle || !path.length) return;
+    [handle closeFile];
+
+    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+    unsigned long long size = [[attrs objectForKey:NSFileSize] unsignedLongLongValue];
+    if (size == 0) return;
+
+    // Adopt the transferred file as the current media source.
+    [_lock lock];
+    if (_mediaType != type) {
+        _mediaType = type;
+        _mediaImageGeneration++;
+        _mediaPaused = NO;
+    }
+    _mediaPath = [path copy];
+    [_lock unlock];
+
+    if (type == 1) {
+        [self loadImageFile:path];
+    } else {
+        dispatch_async(_mediaQueue, ^{
+            [self startVideoReader:path];
+        });
+    }
 }
 
 #pragma mark - Image loading

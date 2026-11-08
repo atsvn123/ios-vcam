@@ -12,6 +12,12 @@ static NSString *const kMediaPath  = @"vc.mediaPath";
 static NSString *const kLive       = @"vc.live";
 static NSString *const kCameraTarget = @"vc.cameraTarget";
 static NSString *const kVideoResolution = @"vc.videoResolution";
+static NSString *const kMediaRotation = @"vc.mediaRotation";
+static NSString *const kMediaMirror = @"vc.mediaMirror";
+static NSString *const kRearRotationOffset = @"vc.rearRotationOffset";
+static NSString *const kFrontRotationOffset = @"vc.frontRotationOffset";
+static NSString *const kRearMirror = @"vc.rearMirror";
+static NSString *const kFrontMirror = @"vc.frontMirror";
 
 @implementation VCSettingsStore {
     NSUserDefaults *_defaults;
@@ -37,6 +43,12 @@ static NSString *const kVideoResolution = @"vc.videoResolution";
             kRTMPURL:    [VCSettingsStore defaultRTMPURL],
             kLive:       @NO,
             kCameraTarget: @0,
+            kMediaRotation: @(-1),
+            kMediaMirror: @NO,
+            kRearRotationOffset: @0,
+            kFrontRotationOffset: @0,
+            kRearMirror: @(-1),
+            kFrontMirror: @(-1),
         }];
         _socket = [[VCClientSocket alloc] init];
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -58,8 +70,18 @@ static NSString *const kVideoResolution = @"vc.videoResolution";
     [_socket sendInt32:1027 value:(int32_t)self.fps];
     [_socket sendInt32:1025 value:(int32_t)self.frameMode];
     [_socket sendInt32:1029 value:(int32_t)self.cameraTarget];
+    [_socket sendInt32:1035 value:(int32_t)self.mediaRotation];
+    [_socket sendInt32:1036 value:(int32_t)(self.mediaMirror ? 1 : 0)];
+    [_socket sendCameraRotationOffset:(int32_t)self.rearRotationOffset position:1];
+    [_socket sendCameraRotationOffset:(int32_t)self.frontRotationOffset position:2];
+    [_socket sendCameraMirror:(self.rearMirror == 1)
+                    hasOverride:(self.rearMirror >= 0) position:1];
+    [_socket sendCameraMirror:(self.frontMirror == 1)
+                    hasOverride:(self.frontMirror >= 0) position:2];
     NSString *path = self.mediaPath;
-    if (path.length) [_socket sendInt32:1022 string:path];
+    if (path.length) {
+        [_socket sendFileAtPath:path type:(int32_t)src];
+    }
     if (self.isLive) {
         if (src == VCSourceTypeRTMP) {
             [_socket sendInt32:1000];
@@ -137,7 +159,9 @@ static NSString *const kVideoResolution = @"vc.videoResolution";
 - (void)setMediaPath:(NSString *)mediaPath {
     if (mediaPath) {
         [_defaults setObject:mediaPath forKey:kMediaPath];
-        [_socket sendInt32:1022 string:mediaPath];
+        // The tweak runs in mediaserverd and cannot read this app's sandbox,
+        // so the file contents are streamed over the socket.
+        [_socket sendFileAtPath:mediaPath type:(int32_t)self.sourceType];
     } else {
         [_defaults removeObjectForKey:kMediaPath];
     }
@@ -158,6 +182,50 @@ static NSString *const kVideoResolution = @"vc.videoResolution";
     [self notify:@"videoResolution"];
 }
 
+- (NSInteger)mediaRotation { return [_defaults integerForKey:kMediaRotation]; }
+- (void)setMediaRotation:(NSInteger)mediaRotation {
+    if (mediaRotation == self.mediaRotation) return;
+    [_defaults setInteger:mediaRotation forKey:kMediaRotation];
+    [_socket sendInt32:1035 value:(int32_t)mediaRotation];
+    [self notify:@"mediaRotation"];
+}
+
+- (BOOL)mediaMirror { return [_defaults boolForKey:kMediaMirror]; }
+- (void)setMediaMirror:(BOOL)mediaMirror {
+    if (mediaMirror == self.mediaMirror) return;
+    [_defaults setBool:mediaMirror forKey:kMediaMirror];
+    [_socket sendInt32:1036 value:(int32_t)(mediaMirror ? 1 : 0)];
+    [self notify:@"mediaMirror"];
+}
+
+- (NSInteger)rearRotationOffset { return [_defaults integerForKey:kRearRotationOffset]; }
+- (void)setRearRotationOffset:(NSInteger)offset {
+    [_defaults setInteger:offset forKey:kRearRotationOffset];
+    [_socket sendCameraRotationOffset:offset position:1];
+    [self notify:@"rearRotationOffset"];
+}
+
+- (NSInteger)frontRotationOffset { return [_defaults integerForKey:kFrontRotationOffset]; }
+- (void)setFrontRotationOffset:(NSInteger)offset {
+    [_defaults setInteger:offset forKey:kFrontRotationOffset];
+    [_socket sendCameraRotationOffset:offset position:2];
+    [self notify:@"frontRotationOffset"];
+}
+
+- (NSInteger)rearMirror { return [_defaults integerForKey:kRearMirror]; }
+- (void)setRearMirror:(NSInteger)mirror {
+    [_defaults setInteger:mirror forKey:kRearMirror];
+    [_socket sendCameraMirror:(mirror == 1) hasOverride:(mirror >= 0) position:1];
+    [self notify:@"rearMirror"];
+}
+
+- (NSInteger)frontMirror { return [_defaults integerForKey:kFrontMirror]; }
+- (void)setFrontMirror:(NSInteger)mirror {
+    [_defaults setInteger:mirror forKey:kFrontMirror];
+    [_socket sendCameraMirror:(mirror == 1) hasOverride:(mirror >= 0) position:2];
+    [self notify:@"frontMirror"];
+}
+
 - (BOOL)isLive { return [_defaults boolForKey:kLive]; }
 - (void)setLive:(BOOL)live {
     if (live == self.isLive) return;
@@ -172,7 +240,10 @@ static NSString *const kVideoResolution = @"vc.videoResolution";
 }
 
 - (void)resetToDefaults {
-    for (NSString *k in @[ kSourceType, kFPS, kFrameMode, kRTMPURL, kMediaName, kMediaPath, kLive, kCameraTarget ]) {
+    for (NSString *k in @[ kSourceType, kFPS, kFrameMode, kRTMPURL, kMediaName, kMediaPath,
+                           kLive, kCameraTarget, kMediaRotation, kMediaMirror,
+                           kRearRotationOffset, kFrontRotationOffset,
+                           kRearMirror, kFrontMirror ]) {
         [_defaults removeObjectForKey:k];
     }
     [_socket sendInt32:1001];
