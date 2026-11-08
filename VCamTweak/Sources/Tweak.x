@@ -35,6 +35,7 @@ static void vcamEntry(void) {
         if (!isMediaHost) return;
 
         atexit(vcamCleanup);
+        [VCLiveEngine sharedInstance];
         installMediaServerHooks();
         pthread_create(&g_listenThread, NULL, listenThreadEntry, NULL);
     }
